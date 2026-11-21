@@ -1,0 +1,360 @@
+import { describe, it, expect } from 'vitest';
+import type { GameEvent } from '@typejoin/shared';
+import { PLACEHOLDER_GIFT_IDS } from '@typejoin/shared';
+import { Sim } from './Sim';
+import { CONFIG, radiusForMass } from '../config';
+
+const DT = 1 / 60;
+const { cx, cy } = CONFIG.arena;
+
+/** A quiet sim: no pellets, bots, spikes or decay, already in the play phase. */
+function quietSim(extra: Parameters<typeof makeSim>[0] = {}) {
+  const sim = makeSim(extra);
+  sim.debugSetPhase('play');
+  sim.balls.length = 0;
+  sim.pellets.length = 0;
+  return sim;
+}
+function makeSim(over: Record<string, unknown> = {}) {
+  return new Sim({
+    seed: 1,
+    config: {
+      pellets: { target: 0 },
+      bots: { minBalls: 0 },
+      spikes: { count: 0 },
+      ball: { decayPerSec: 0 },
+      ...over,
+    } as never,
+  });
+}
+const ev = (e: Partial<GameEvent> & { type: GameEvent['type'] }): GameEvent =>
+  ({ userId: 'u1', nickname: 'User 1', ts: 0, ...e }) as GameEvent;
+
+/** Keep balls still so a test isolates one rule. */
+function freeze(sim: Sim) {
+  for (const b of sim.balls) {
+    b.aiNextThink = Infinity;
+    b.aiDx = b.aiDy = 0;
+    b.vx = b.vy = 0;
+  }
+}
+
+describe('contact rule', () => {
+  it('big vs small: each loses 0.6 * other mass * dt, gains half of what it takes', () => {
+    const sim = quietSim();
+    const a = sim.debugSpawn({ ownerId: 'A', mass: 1000, x: cx, y: cy });
+    const b = sim.debugSpawn({ ownerId: 'B', mass: 100, x: cx + 60, y: cy });
+    freeze(sim);
+    sim.contacts(DT);
+    const lossB = Math.min(100, 0.6 * 1000 * DT); // 10
+    const lossA = Math.min(1000, 0.6 * 100 * DT); // 1
+    expect(b.mass).toBeCloseTo(100 - lossB + 0.5 * lossA, 9);
+    expect(a.mass).toBeCloseTo(1000 - lossA + 0.5 * lossB, 9);
+    // The other half spills as pellets (conserved once flushed).
+    expect(b.spillAcc + a.spillAcc).toBeCloseTo(0.5 * (lossA + lossB), 9);
+  });
+
+  it('equal masses lose the same amount', () => {
+    const sim = quietSim();
+    const a = sim.debugSpawn({ ownerId: 'A', mass: 200, x: cx - 30, y: cy });
+    const b = sim.debugSpawn({ ownerId: 'B', mass: 200, x: cx + 30, y: cy });
+    freeze(sim);
+    sim.contacts(DT);
+    expect(a.mass).toBeCloseTo(b.mass, 9);
+    expect(a.mass).toBeCloseTo(200 - 0.6 * 200 * DT * 0.5, 9);
+  });
+
+  it('loss is capped by the victim mass', () => {
+    const sim = quietSim();
+    sim.debugSpawn({ ownerId: 'A', mass: 100000, x: cx, y: cy });
+    const b = sim.debugSpawn({ ownerId: 'B', mass: 5, x: cx + 10, y: cy });
+    freeze(sim);
+    sim.contacts(DT);
+    expect(b.mass).toBeGreaterThanOrEqual(0);
+  });
+
+  it('spawn protection and shields block damage in both directions', () => {
+    const sim = quietSim();
+    const a = sim.debugSpawn({ ownerId: 'A', mass: 1000, x: cx, y: cy });
+    const b = sim.debugSpawn({ ownerId: 'B', mass: 50, x: cx + 40, y: cy, protectedSec: 3 });
+    freeze(sim);
+    sim.contacts(DT);
+    expect(a.mass).toBe(1000);
+    expect(b.mass).toBe(50);
+  });
+
+  it('no damage during the join window', () => {
+    const sim = makeSim();
+    expect(sim.phase).toBe('join');
+    const a = sim.debugSpawn({ ownerId: 'A', mass: 1000, x: cx, y: cy });
+    const b = sim.debugSpawn({ ownerId: 'B', mass: 50, x: cx + 40, y: cy });
+    sim.contacts(DT);
+    expect(a.mass).toBe(1000);
+    expect(b.mass).toBe(50);
+  });
+});
+
+describe('eating and revenge', () => {
+  it('kills, credits the killer, sets revenge and enforces the rejoin cooldown', () => {
+    const sim = quietSim();
+    sim.debugSpawn({ ownerId: 'A', mass: 1000, x: cx, y: cy });
+    sim.handleEvent(ev({ type: 'join', userId: 'B', nickname: 'B' }));
+    const b = sim.ballsOf('B')[0];
+    b.protectedUntil = 0;
+    b.x = cx + 20;
+    b.y = cy;
+    freeze(sim);
+    for (let i = 0; i < 30 && sim.ballsOf('B').length; i++) sim.step(DT);
+    expect(sim.ballsOf('B').length).toBe(0);
+    const eaten = sim.drainEvents().find((e) => e.type === 'eaten');
+    expect(eaten && eaten.type === 'eaten' && eaten.killerOwner).toBe('A');
+    expect(sim.players.get('A')!.kills).toBe(1);
+    const victim = sim.players.get('B')!;
+    expect(victim.revengeTarget).toBe('A');
+    expect(victim.revengeUntil).toBeCloseTo(sim.time + 60, 5);
+    // Rejoin is blocked for 5 s.
+    sim.handleEvent(ev({ type: 'join', userId: 'B', nickname: 'B' }));
+    expect(sim.ballsOf('B').length).toBe(0);
+    for (let i = 0; i < 5 * 60 + 2; i++) sim.step(DT);
+    sim.handleEvent(ev({ type: 'join', userId: 'B', nickname: 'B' }));
+    expect(sim.ballsOf('B').length).toBe(1);
+    // Spike shot from B targets the revenge target A.
+    expect(sim.spikeShotTarget('B')?.ownerId).toBe('A');
+  });
+
+  it('one ball per user', () => {
+    const sim = quietSim();
+    sim.handleEvent(ev({ type: 'join' }));
+    sim.handleEvent(ev({ type: 'join' }));
+    expect(sim.ballsOf('u1').length).toBe(1);
+    expect(sim.ballsOf('u1')[0].mass).toBe(20);
+  });
+});
+
+describe('gifts', () => {
+  const gift = (units: number, giftId: number = PLACEHOLDER_GIFT_IDS.rose, coinsPerUnit = 1) =>
+    ev({ type: 'gift', giftId, giftName: 'g', coinsPerUnit, units } as never);
+
+  it('mass = coins * units * 25 per delivered update, summed over a streak without double counting', () => {
+    const sim = quietSim();
+    sim.handleEvent(ev({ type: 'join' }));
+    // Bridge delivers a 1 -> 4 -> 7 streak as deltas 1, 3, 3.
+    for (const u of [1, 3, 3]) sim.handleEvent(gift(u, PLACEHOLDER_GIFT_IDS.rose, 1));
+    expect(sim.ownerMass('u1')).toBe(20 + 7 * 25);
+  });
+
+  it('a gift from a user without a ball auto-joins them, then applies the gift', () => {
+    const sim = quietSim();
+    sim.handleEvent(gift(2, PLACEHOLDER_GIFT_IDS.dash, 5));
+    expect(sim.ballsOf('u1').length).toBe(1);
+    expect(sim.ownerMass('u1')).toBe(20 + 5 * 2 * 25);
+    const p = sim.players.get('u1')!;
+    expect(p.gifted).toBe(true);
+    expect(p.dashUntil).toBeCloseTo(sim.time + 2 * 3, 5); // each unit counts
+  });
+
+  it('gifts during the rejoin cooldown are queued, then auto-join and apply', () => {
+    const sim = quietSim();
+    sim.debugSpawn({ ownerId: 'u1', mass: 20, x: cx, y: cy });
+    sim.players.get('u1')!.rejoinAt = sim.time + 5;
+    sim.balls.length = 0; // pretend it was just eaten
+    sim.handleEvent(gift(4));
+    expect(sim.ballsOf('u1').length).toBe(0);
+    for (let i = 0; i < 5 * 60 + 2; i++) sim.step(DT);
+    expect(sim.ballsOf('u1').length).toBe(1);
+    expect(sim.ownerMass('u1')).toBeCloseTo(20 + 4 * 25, 5);
+  });
+
+  it('gifts during results are applied in the next round', () => {
+    const sim = quietSim();
+    sim.debugSetPhase('results');
+    sim.handleEvent(gift(3));
+    for (let i = 0; i < CONFIG.round.resultsSec * 60 + 2; i++) sim.step(DT);
+    expect(sim.phase).toBe('join');
+    expect(sim.ownerMass('u1')).toBe(20 + 3 * 25);
+  });
+
+  it('shield and magnet extend (capped at 60 s); spike shots count every unit', () => {
+    const sim = quietSim();
+    sim.handleEvent(ev({ type: 'join' }));
+    sim.debugSpawn({ ownerId: 'K', mass: 5000, x: cx + 300, y: cy });
+    sim.handleEvent(gift(1, PLACEHOLDER_GIFT_IDS.shield, 30));
+    sim.handleEvent(gift(1, PLACEHOLDER_GIFT_IDS.shield, 30));
+    const p = sim.players.get('u1')!;
+    expect(p.shieldUntil).toBeCloseTo(sim.time + 20, 5);
+    sim.handleEvent(gift(20, PLACEHOLDER_GIFT_IDS.magnet, 500));
+    expect(p.magnetUntil).toBeCloseTo(sim.time + 60, 5);
+    sim.handleEvent(gift(3, PLACEHOLDER_GIFT_IDS.spikeShot, 100));
+    let fired = 0;
+    for (let i = 0; i < 120; i++) {
+      const before = sim.projectiles.length;
+      sim.step(DT);
+      fired += Math.max(0, sim.projectiles.length - before);
+    }
+    const hits = sim.drainEvents().filter((e) => e.type === 'spikeShotHit').length;
+    expect(fired + 0).toBeGreaterThanOrEqual(1);
+    expect(hits + sim.projectiles.length).toBe(3);
+  });
+
+  it('likes: +1 mass each, max 20 per second per user; all likes fill the feast meter', () => {
+    const sim = quietSim();
+    sim.handleEvent(ev({ type: 'join' }));
+    sim.handleEvent(ev({ type: 'like', count: 15 } as never));
+    sim.handleEvent(ev({ type: 'like', count: 15 } as never));
+    expect(sim.ownerMass('u1')).toBe(40);
+    sim.handleEvent(ev({ type: 'like', userId: 'nobody', count: 2970 } as never));
+    sim.step(DT);
+    expect(sim.feastActive()).toBe(true);
+  });
+
+  it('follow and share give +50 once per round', () => {
+    const sim = quietSim();
+    sim.handleEvent(ev({ type: 'join' }));
+    sim.handleEvent(ev({ type: 'follow' }));
+    sim.handleEvent(ev({ type: 'follow' }));
+    sim.handleEvent(ev({ type: 'share' }));
+    expect(sim.ownerMass('u1')).toBe(120);
+  });
+});
+
+describe('spikes', () => {
+  it('splits a ball > 1000 into 4, respawns the spike after 10 s and re-merges after 12 s', () => {
+    const sim = makeSim({ spikes: { count: 1 } });
+    sim.debugSetPhase('play');
+    sim.balls.length = 0;
+    const spike = sim.spikes[0];
+    const b = sim.debugSpawn({ ownerId: 'big', mass: 2000, x: spike.x, y: spike.y });
+    sim.step(DT);
+    const pieces = sim.ballsOf('big');
+    expect(pieces.length).toBe(4);
+    for (const p of pieces) expect(p.mass).toBeCloseTo(500, 0);
+    expect(spike.active).toBe(false);
+    expect(b.mergeAt).toBeGreaterThan(0);
+    for (let i = 0; i < 10 * 60 + 2; i++) sim.step(DT);
+    expect(spike.active).toBe(true);
+    for (let i = 0; i < 6 * 60; i++) sim.step(DT);
+    const merged = sim.ballsOf('big');
+    expect(merged.length).toBe(1);
+    expect(merged[0].mass).toBeGreaterThan(1900);
+  });
+
+  it('small balls pass over spikes unaffected', () => {
+    const sim = makeSim({ spikes: { count: 1 } });
+    sim.debugSetPhase('play');
+    sim.balls.length = 0;
+    const s = sim.spikes[0];
+    sim.debugSpawn({ ownerId: 'small', mass: 900, x: s.x, y: s.y });
+    sim.step(DT);
+    expect(sim.ballsOf('small').length).toBe(1);
+    expect(s.active).toBe(true);
+  });
+
+  it('spike shot: splits a target > 1000, otherwise removes 30 %', () => {
+    const sim = quietSim();
+    const big = sim.debugSpawn({ ownerId: 'big', mass: 4000, x: cx, y: cy });
+    sim.spikeShotHit(big, big.x, big.y);
+    expect(sim.ballsOf('big').length).toBe(4);
+    const small = sim.debugSpawn({ ownerId: 'small', mass: 500, x: cx - 300, y: cy });
+    sim.spikeShotHit(small, small.x, small.y);
+    expect(small.mass).toBeCloseTo(350, 9);
+  });
+});
+
+describe('storm', () => {
+  it('a ball outside the safe zone loses 5 % per second, inside it does not', () => {
+    const sim = quietSim();
+    sim.debugSetPhase('storm');
+    for (let i = 0; i < CONFIG.round.stormSec * 60 - 30; i++) sim.step(DT);
+    expect(sim.safeRadius()).toBeLessThan(CONFIG.arena.radius * 0.52);
+    const out = sim.debugSpawn({ ownerId: 'out', mass: 100, x: cx + 330, y: cy });
+    const inn = sim.debugSpawn({ ownerId: 'in', mass: 100, x: cx - 330, y: cy });
+    inn.x = cx; // well inside
+    freeze(sim);
+    sim.step(DT);
+    expect(out.mass).toBeCloseTo(100 * (1 - 0.05 * DT), 6);
+    expect(inn.mass).toBe(100);
+  });
+
+  it('the safe zone shrinks smoothly from 100 % to 50 %', () => {
+    const sim = quietSim();
+    sim.debugSetPhase('storm');
+    const R = CONFIG.arena.radius;
+    expect(sim.safeRadius()).toBeCloseTo(R, 5);
+    let prev = sim.safeRadius();
+    for (let i = 0; i < CONFIG.round.stormSec * 60 - 1; i++) {
+      sim.step(DT);
+      const r = sim.safeRadius();
+      expect(r).toBeLessThanOrEqual(prev + 1e-9);
+      expect(prev - r).toBeLessThan(1);
+      prev = r;
+    }
+    expect(prev).toBeCloseTo(R * 0.5, 0);
+  });
+});
+
+describe('round loop', () => {
+  it('join 10 s -> play 2:30 -> storm 1:00 -> results 15 s -> fresh round', () => {
+    const sim = new Sim({ seed: 3 });
+    const phases: string[] = [sim.phase];
+    sim.handleEvent(ev({ type: 'join', userId: 'p1', nickname: 'P1' }));
+    sim.handleEvent(ev({ type: 'gift', userId: 'p2', nickname: 'P2', giftId: PLACEHOLDER_GIFT_IDS.rose, giftName: 'Rose', coinsPerUnit: 1, units: 1 } as never));
+    const R = CONFIG.round;
+    const at: Record<string, number> = {};
+    const total = R.joinSec + R.playSec + R.stormSec + R.resultsSec + 1;
+    for (let i = 0; i < total * 60; i++) {
+      sim.step(DT);
+      if (sim.phase !== phases[phases.length - 1]) {
+        phases.push(sim.phase);
+        at[sim.phase + phases.length] = sim.time;
+      }
+      if (sim.phase === 'results' && !sim.lastResults) throw new Error('no results');
+    }
+    expect(phases).toEqual(['join', 'play', 'storm', 'results', 'join']);
+    expect(sim.roundNo).toBe(2);
+    expect(at.play2).toBeCloseTo(R.joinSec, 1);
+    expect(at.storm3).toBeCloseTo(R.joinSec + R.playSec, 1);
+    expect(at.results4).toBeCloseTo(R.joinSec + R.playSec + R.stormSec, 1);
+    expect(at.join5).toBeCloseTo(R.joinSec + R.playSec + R.stormSec + R.resultsSec, 1);
+    // New round: no real players carried over (they must type join again), only bots.
+    expect(sim.balls.every((b) => b.isBot)).toBe(true);
+    expect(sim.lastResults!.roundNo).toBe(1);
+  });
+
+  it('results: titles exclude bots; best free player excludes gifters; leaderboard points', () => {
+    const sim = quietSim();
+    sim.debugSpawn({ ownerId: 'bot:x', mass: 99999, x: cx, y: cy, isBot: true });
+    sim.debugSpawn({ ownerId: 'rich', mass: 100, x: cx - 300, y: cy });
+    sim.players.get('rich')!.gifted = true;
+    sim.handleEvent(ev({ type: 'gift', userId: 'rich', nickname: 'rich', giftId: PLACEHOLDER_GIFT_IDS.rose, giftName: 'Rose', coinsPerUnit: 1, units: 100 } as never));
+    sim.debugSpawn({ ownerId: 'free', mass: 300, x: cx + 300, y: cy });
+    sim.players.get('free')!.kills = 2;
+    sim.debugSetPhase('results');
+    const r = sim.lastResults!;
+    expect(r.king?.userId).toBe('rich');
+    expect(r.killer?.userId).toBe('free');
+    expect(r.bestFree?.userId).toBe('free');
+    expect(sim.leaderboard.points('rich')).toBe(10);
+    expect(sim.leaderboard.points('free')).toBe(7 + 2);
+    expect(r.top.some((t) => t.userId.startsWith('bot'))).toBe(false);
+  });
+
+  it('bots fill up to 8 balls and leave as real players join', () => {
+    const sim = new Sim({ seed: 9 });
+    for (let i = 0; i < 300; i++) sim.step(DT);
+    expect(sim.balls.length).toBe(8);
+    expect(sim.balls.every((b) => b.isBot)).toBe(true);
+    for (let i = 0; i < 5; i++) sim.handleEvent(ev({ type: 'join', userId: `r${i}`, nickname: `R${i}` }));
+    expect(sim.balls.length).toBe(8);
+    expect(sim.balls.filter((b) => !b.isBot).length).toBe(5);
+    for (let i = 5; i < 12; i++) sim.handleEvent(ev({ type: 'join', userId: `r${i}`, nickname: `R${i}` }));
+    expect(sim.balls.filter((b) => b.isBot).length).toBe(0);
+    expect(sim.balls.length).toBe(12);
+  });
+});
+
+describe('formulas', () => {
+  it('radius and speed', () => {
+    expect(radiusForMass(10)).toBeCloseTo(28 + 20 * Math.log(2), 9);
+    expect(radiusForMass(1e9)).toBe(200);
+  });
+});

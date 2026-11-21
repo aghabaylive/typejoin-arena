@@ -1,0 +1,67 @@
+# typejoin-arena
+
+A TikTok LIVE arena game. Each viewer becomes a ball showing their profile picture. Balls move on their own (AI), bigger balls eat smaller ones, and gifts add mass and grant abilities. The game renders to a fixed vertical 1080x1920 canvas, meant to be captured as a browser source.
+
+**This step has no TikTok connection.** Everything runs on a fake event source that you drive from a dev panel.
+
+## Run
+
+```bash
+npm install
+npm run dev
+```
+
+- Game: http://127.0.0.1:5173 (press **D** for the dev overlay: FPS, ball count, last 20 events)
+- Dev panel (drives FakeSource): http://localhost:8787/dev
+- Bridge WebSocket: ws://localhost:8787. To point the game at a different bridge, add `?bridge=ws://host:port` to the game URL.
+
+For OBS, add a Browser Source at 1080x1920 pointing at the game URL.
+
+### Record a lively 3-minute clip without real viewers
+1. Open the game and /dev.
+2. Click **Add N viewers** with N = 30.
+3. Click **Lively clip preset**. This turns on background joins, likes and gifts.
+4. During play, fire a Black Hole and a few Spike Shots by hand.
+5. Each new round needs fresh joins. The background join rate covers this, or click **All fake viewers type join again**.
+
+## Tests
+
+```bash
+npm test
+```
+
+```bash
+npm run typecheck
+```
+
+## Layout
+
+```
+shared/  normalized event types + PLACEHOLDER gift catalog (ids shared by FakeSource and game config)
+bridge/  Node + ws
+  src/sources/EventSource.ts  EventSource interface + raw (TikTok-shaped) event types
+  src/sources/FakeSource.ts   the only source for now
+  src/normalize.ts            join aliases, gift streak deltas (exactly-once units)
+  src/server.ts               WS broadcast, /dev panel, /dev/state, /dev/cmd (future /avatar seam)
+  public/dev.html             dev panel
+game/    Vite + PixiJS v8
+  src/config.ts   ALL tunable numbers
+  src/sim/        rendering-independent simulation (fixed 60 Hz)
+  src/render/     PixiJS drawing, effects, HUD, legend, overlays, avatar loader
+  src/net/        bridge WebSocket client
+```
+
+### Seams for later steps
+- **TikTokSource**: implement `EventSource` (`bridge/src/sources/EventSource.ts`) and emit `RawSourceEvent`s. Gifts use TikTok's cumulative `repeatCount`/`repeatEnd`, and the normalizer turns them into deltas. Select the source in `bridge/src/index.ts` (env `EVENT_SOURCE`).
+- **Avatar proxy**: the game already loads `CONFIG.net.avatarProxy + encodeURIComponent(url)` (`http://localhost:8787/avatar?url=`). Mount the route in `bridge/src/server.ts` where marked. Any failure falls back to initials.
+- **Real gift ids**: replace the ids in `shared/src/gifts.ts`, or remap them in `CONFIG.gifts.abilities`.
+- **Database / moderation**: the session leaderboard is `game/src/sim/leaderboard.ts` (memory only). All viewer input enters through `Sim.handleEvent`.
+
+## Rule notes (choices made where the spec was open)
+- A chat message that matches a join alias becomes a `join` event *instead of* a `chat` event.
+- During the join window, balls move and eat pellets but cannot damage each other. Abilities bought then are held and fire when play starts. Their mass is added immediately.
+- A gift sent during the 5 s rejoin cooldown is queued. The ball auto-spawns when the cooldown ends, then the gift is applied. Gifts sent during the results screen are applied at the start of the next round, so no gift is ever lost.
+- Dash and Black hole also extend their duration per unit (capped at 60 s), the same way Shield and Magnet do.
+- Split pieces share their owner's ability timers. Kills and revenge count only when the owner's last piece dies. Pieces merge on contact after 12 s, and are forced together 3 s after that.
+- The storm shrinks a safe zone inside the arena. Balls can still enter the red ring, but they take 5 %/s damage there.
+- Live top 3, King, and titles consider real players only. Bots can eat and get kills, but never win titles.

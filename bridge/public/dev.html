@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>typejoin-arena · FakeSource dev panel</title>
+<style>
+  :root { color-scheme: dark; --bg:#0d1326; --card:#151d38; --line:#26305a; --fg:#e8ecff; --dim:#8a93b8; --acc:#5b8cff; }
+  * { box-sizing: border-box; }
+  body { margin:0; font: 14px/1.4 system-ui, sans-serif; background: var(--bg); color: var(--fg); }
+  header { padding: 12px 16px; border-bottom: 1px solid var(--line); display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+  header h1 { font-size: 16px; margin:0; }
+  .pill { padding: 2px 8px; border-radius: 99px; background: var(--card); border:1px solid var(--line); color: var(--dim); }
+  .pill.ok { color: #7dffa8; } .pill.bad { color: #ff7d7d; }
+  main { display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; padding: 12px 16px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin: 0 0 10px; }
+  .row { display:flex; gap:8px; align-items:center; margin-bottom: 8px; flex-wrap: wrap; }
+  button { background: var(--acc); color: white; border: 0; border-radius: 6px; padding: 7px 12px; font-weight: 600; cursor: pointer; }
+  button.alt { background: #2a3566; } button:active { transform: translateY(1px); }
+  input[type=number], select, input[type=text] { background:#0b1022; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:6px 8px; }
+  input[type=number] { width: 80px; }
+  input[type=range] { flex: 1; min-width: 140px; }
+  label.slider { display:grid; grid-template-columns: 120px 1fr 60px; gap: 8px; align-items:center; margin-bottom: 8px; }
+  .gifts { display:grid; grid-template-columns: repeat(auto-fill, minmax(140px,1fr)); gap: 6px; }
+  .gifts button { text-align:left; background:#2a3566; }
+  .gifts small { display:block; color: var(--dim); font-weight: 400; }
+  #log { font: 12px ui-monospace, monospace; max-height: 340px; overflow:auto; white-space: pre; color: var(--dim); }
+  .hint { color: var(--dim); font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>typejoin-arena · FakeSource</h1>
+  <span id="clients" class="pill">game clients: ?</span>
+  <span id="users" class="pill">fake users: 0</span>
+  <span id="total" class="pill">events: 0</span>
+</header>
+<main>
+  <section>
+    <h2>Viewers</h2>
+    <div class="row">
+      <input id="n" type="number" value="30" min="1" max="500" />
+      <button onclick="cmd({cmd:'addViewers', n:+val('n')})">Add N viewers (type join)</button>
+    </div>
+    <div class="row">
+      <button class="alt" onclick="cmd({cmd:'rejoinAll'})">All fake viewers type join again</button>
+    </div>
+    <p class="hint">Every round needs a fresh "join". Press this during the join window, or keep a background join rate on.</p>
+    <div class="row">
+      <label>Acting user</label>
+      <select id="user"><option value="">random fake user</option></select>
+    </div>
+    <div class="row">
+      <button onclick="cmd({cmd:'follow', userId: val('user')})">Follow</button>
+      <button onclick="cmd({cmd:'share', userId: val('user')})">Share</button>
+      <input id="chat" type="text" placeholder="chat text" />
+      <button class="alt" onclick="cmd({cmd:'chat', text: val('chat'), userId: val('user')})">Chat</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Likes</h2>
+    <div class="row">
+      <input id="likes" type="number" value="300" min="1" />
+      <button onclick="cmd({cmd:'likes', count:+val('likes'), userId: val('user')})">Like burst</button>
+      <button class="alt" onclick="cmd({cmd:'likes', count:3000})">+3000 (Feast)</button>
+    </div>
+    <p class="hint">Uses the acting user if one is selected; otherwise likes are spread over random fake users.</p>
+  </section>
+
+  <section>
+    <h2>Gifts</h2>
+    <div class="row"><label>Units</label><input id="units" type="number" value="1" min="1" max="99" />
+      <span class="hint">from the acting user (or random)</span></div>
+    <div id="gifts" class="gifts"></div>
+  </section>
+
+  <section>
+    <h2>Background activity</h2>
+    <label class="slider">Joins / min <input id="joinPerMin" type="range" min="0" max="120" step="1" /> <span id="joinPerMinV"></span></label>
+    <label class="slider">Likes / sec <input id="likesPerSec" type="range" min="0" max="200" step="1" /> <span id="likesPerSecV"></span></label>
+    <label class="slider">Gifts / min <input id="giftsPerMin" type="range" min="0" max="60" step="1" /> <span id="giftsPerMinV"></span></label>
+    <div class="row">
+      <button onclick="preset(30, 40, 8)">Lively clip preset</button>
+      <button class="alt" onclick="preset(8, 10, 2)">Calm</button>
+      <button class="alt" onclick="preset(0, 0, 0)">Stop</button>
+    </div>
+    <p class="hint">Recording a 3-minute clip: add 30 viewers, press "Lively clip preset", fire a Black Hole and a few Spike Shots by hand during play.</p>
+  </section>
+
+  <section style="grid-column: 1 / -1">
+    <h2>Last events (normalized, as sent to the game)</h2>
+    <div id="log"></div>
+  </section>
+</main>
+<script>
+  const val = (id) => document.getElementById(id).value;
+  async function cmd(body) {
+    const r = await fetch('/dev/cmd', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    if (!r.ok) console.warn(await r.text());
+    refresh();
+  }
+  function preset(j, l, g) { setRates({ joinPerMin: j, likesPerSec: l, giftsPerMin: g }, true); }
+  function setRates(r, updateInputs) {
+    for (const k of Object.keys(r)) {
+      if (updateInputs) document.getElementById(k).value = r[k];
+      document.getElementById(k + 'V').textContent = r[k];
+    }
+    cmd({ cmd: 'rates', ...r });
+  }
+  for (const id of ['joinPerMin', 'likesPerSec', 'giftsPerMin']) {
+    document.getElementById(id).addEventListener('input', (e) => setRates({ [id]: +e.target.value }, false));
+  }
+  let first = true, lastUserCount = -1;
+  async function refresh() {
+    let s;
+    try { s = await (await fetch('/dev/state')).json(); } catch { document.getElementById('clients').className = 'pill bad'; return; }
+    const c = document.getElementById('clients');
+    c.textContent = 'game clients: ' + s.clients; c.className = 'pill ' + (s.clients > 0 ? 'ok' : 'bad');
+    document.getElementById('users').textContent = 'fake users: ' + s.users.length;
+    document.getElementById('total').textContent = 'events: ' + s.totalEvents;
+    if (first) {
+      first = false;
+      for (const k of Object.keys(s.rates)) { document.getElementById(k).value = s.rates[k]; document.getElementById(k + 'V').textContent = s.rates[k]; }
+      const g = document.getElementById('gifts');
+      for (const gift of s.gifts) {
+        const b = document.createElement('button');
+        b.innerHTML = `${gift.giftName}<small>id ${gift.giftId} · ${gift.coinsPerUnit} coins${gift.streakable ? ' · streak' : ''}</small>`;
+        b.onclick = () => cmd({ cmd: 'gift', giftId: gift.giftId, units: +val('units'), userId: val('user') });
+        g.appendChild(b);
+      }
+    }
+    if (s.users.length !== lastUserCount) {
+      lastUserCount = s.users.length;
+      const sel = document.getElementById('user'); const cur = sel.value;
+      sel.innerHTML = '<option value="">random fake user</option>' + s.users.map((u) => `<option value="${u.userId}">${u.nickname.replace(/</g, '&lt;')}</option>`).join('');
+      sel.value = cur;
+    }
+    document.getElementById('log').textContent = s.recent.map((e) => {
+      const extra = e.type === 'gift' ? ` ${e.giftName} x${e.units} (${e.coinsPerUnit}c)` : e.type === 'like' ? ` x${e.count}` : e.type === 'chat' ? ` "${e.text}"` : '';
+      return `${new Date(e.ts).toLocaleTimeString()}  ${e.type.padEnd(6)} ${e.nickname}${extra}`;
+    }).join('\n');
+  }
+  refresh(); setInterval(refresh, 1000);
+</script>
+</body>
+</html>
