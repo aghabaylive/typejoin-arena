@@ -45,6 +45,18 @@ SOURCE=tiktok TIKTOK_USERNAME=<account> npm run dev
 - **Dev panel:** in TikTok mode, http://localhost:8787/dev is a read-only live event feed. Fake viewers, likes and gifts cannot be injected (`/dev/cmd` returns 403). In-game bots are unchanged.
 - **Recording fixtures:** `npm run tiktok:record -w bridge -- <account> [seconds]` saves anonymized sample payloads to `bridge/test/fixtures/`.
 
+### TikTok LIVE Studio: "Add link" source
+LIVE Studio rejects `http://127.0.0.1:5173` and `http://localhost:5173` ("Enter correct URL"). Give the game a normal-looking local domain instead:
+
+1. Once, add a hosts entry (asks for your password):
+   ```bash
+   echo "127.0.0.1 arena.typejoin.test" | sudo tee -a /etc/hosts
+   ```
+2. Start everything as usual (`npm run dev`, or with `SOURCE=tiktok ...`).
+3. In LIVE Studio, Add link: `http://arena.typejoin.test:5173/`
+
+Vite still listens on 127.0.0.1:5173 (`strictPort`); `server.allowedHosts` in `game/vite.config.ts` lets it answer for `arena.typejoin.test`. The game page still talks to the bridge at `ws://localhost:8787`.
+
 ### Host panel: http://localhost:8787/host (local machine only)
 - Alive players with picture and name, and a **Remove and ban** button. Bans are stored in `data/bans.json`, and banned users' events are dropped by the bridge, so they can never rejoin. Banned users are listed with an Unban button.
 - Pause, resume, and **Reset arena** (emergency only: removes every ball; everyone types join again; gifts waiting to be applied are kept).
