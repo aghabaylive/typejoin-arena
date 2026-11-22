@@ -225,14 +225,29 @@ export const CONFIG = {
 
   revenge: { sec: 60 },
 
+  /** Channel brand palette (visual only). */
+  brand: {
+    ink: 0x12103a,
+    floor: 0x1c1a52,
+    cobalt: 0x2340ff,
+    yellow: 0xffd43b,
+    coral: 0xff5a5f,
+    white: 0xffffff,
+    muted: 0xb9bde6,
+    /** Pellets: 4 brand-friendly colors. */
+    pellets: [0xffd43b, 0x4dd8ff, 0xff7ab6, 0x7cf29a],
+  },
+
   render: {
-    bg: 0x0a1230,
+    bg: 0x12103a, // brand.ink
     hexSize: 46,
-    hexColor: 0x1b2a5c,
-    rimColor: 0x4fb4ff,
-    stormColor: 0xff3b4a,
+    hexColor: 0x3a3690,
+    rimColor: 0x2340ff, // brand.cobalt
+    stormColor: 0xff5a5f, // brand.coral
     minFont: 36,
-    fontFamily: 'Arial Black, Arial, Helvetica, sans-serif',
+    /** Lilita One (bundled in public/fonts, OFL) for titles and numbers; a clean sans for small text. */
+    titleFont: '"Lilita One", "Arial Black", sans-serif',
+    fontFamily: '"Helvetica Neue", Helvetica, Arial, system-ui, sans-serif',
     /** Layout bands (px in the 1080x1920 canvas). */
     hudTop: 288, // 15 %
     hudBottom: 403, // 21 %

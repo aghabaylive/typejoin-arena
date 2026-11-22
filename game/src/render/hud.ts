@@ -1,137 +1,182 @@
-import { Assets, Container, Graphics, Sprite, Text, type TextStyleOptions, type Texture } from 'pixi.js';
+import { Assets, Container, Graphics, Sprite, type Text, type Texture } from 'pixi.js';
 import { CONFIG } from '../config';
 import type { Sim } from '../sim/Sim';
 import type { AvatarCache } from './avatars';
 import type { Textures } from './textures';
-import { clip, formatMass, formatTime, label } from './text';
+import { body, clip, formatMass, formatTime, label } from './text';
 
-const RANK_COLORS = [0xffc83d, 0xd9e2f2, 0xd08a4a];
+const B = CONFIG.brand;
 
-/** Top band (15-21 % of the height): timer, live top 3, Feast meter, "type join" hint. */
+/**
+ * Top band (15-21 % of the height), two rows.
+ * Row 1: phase + timer (left), King card (right).
+ * Row 2: "Type JOIN to play" pill (left; larger + pulsing in the join window; shows the queue when full),
+ *        like meter "Likes -> FOOD RAIN" (right).
+ */
 export class Hud {
   readonly root = new Container();
   private timer: Text;
-  private hint: Text;
-  private lastPhase = '';
-  private hintColor = 0xffe066;
-  private feastBar = new Graphics();
-  private feastText: Text;
-  private slots: { av: Sprite; ring: Sprite; mass: Text; rank: Text; owner: string | null; ver: number }[] = [];
+  private phaseKey = '';
+  // King card
+  private king = new Container();
+  private kingCrown: Sprite;
+  private kingRing: Sprite;
+  private kingAv = new Sprite();
+  private kingName: Text;
+  private kingMass: Text;
+  private noKing: Text;
+  private kingKey = '';
+  private kingVer = -1;
+  // Join pill
+  private join = new Container();
+  private joinBg = new Graphics();
+  private joinText: Text;
+  private joinW = 0;
+  // Like meter
+  private meter = new Graphics();
+  private meterText: Text;
 
   constructor(tex: Textures, private avatars: AvatarCache) {
     const R = CONFIG.render;
     const top = R.hudTop;
-    const bg = new Graphics()
-      .roundRect(24, top + 2, 1032, R.hudBottom - top - 4, 22)
-      .fill({ color: 0x050a1e, alpha: 0.55 })
-      .stroke({ width: 2, color: 0x2a3b7a, alpha: 0.8 });
-    this.root.addChild(bg);
-    this.timer = label('0:00', 64);
+    this.root.addChild(
+      new Graphics()
+        .roundRect(24, top + 2, 1032, R.hudBottom - top - 4, 24)
+        .fill({ color: B.ink, alpha: 0.85 })
+        .stroke({ width: 2, color: B.cobalt, alpha: 0.55 }),
+    );
+    const row1 = top + 31, row2 = top + 86;
+
+    // Row 1 left: phase + timer
+    this.timer = label('', 52, B.yellow);
     this.timer.anchor.set(0, 0.5);
-    this.timer.position.set(48, top + 36);
+    this.timer.position.set(46, row1);
     this.root.addChild(this.timer);
 
-    for (let i = 0; i < 3; i++) {
-      const x = 300 + i * 250;
-      const ring = new Sprite(tex.ring);
-      ring.anchor.set(0.5);
-      ring.width = ring.height = 60;
-      ring.tint = RANK_COLORS[i];
-      ring.position.set(x + 30, top + 34);
-      const av = new Sprite();
-      av.anchor.set(0.5);
-      av.width = av.height = 52;
-      av.position.copyFrom(ring.position);
-      const mass = label('', 38, 0xffffff);
-      mass.anchor.set(0, 0.5);
-      mass.position.set(x + 68, top + 36);
-      const rank = label(String(i + 1), 36, RANK_COLORS[i]);
-      rank.scale.set(0.8);
-      rank.position.set(x + 4, top + 12);
-      this.root.addChild(av, ring, mass, rank);
-      this.slots.push({ av, ring, mass, rank, owner: null, ver: -1 });
-    }
+    // Row 1 right: King card (laid out right-aligned in update)
+    this.kingCrown = new Sprite(tex.crown);
+    this.kingCrown.anchor.set(0.5);
+    this.kingCrown.width = 46;
+    this.kingCrown.height = 32;
+    this.kingRing = new Sprite(tex.ringThick);
+    this.kingRing.anchor.set(0.5);
+    this.kingRing.tint = B.yellow;
+    this.kingRing.width = this.kingRing.height = 50;
+    this.kingAv.anchor.set(0.5);
+    this.kingName = body('', 30, 0xffffff, '700');
+    this.kingName.anchor.set(0, 0.5);
+    this.kingMass = label('', 36, B.yellow);
+    this.kingMass.anchor.set(0, 0.5);
+    this.king.addChild(this.kingCrown, this.kingAv, this.kingRing, this.kingName, this.kingMass);
+    this.king.position.set(0, row1);
+    this.noKing = body('No king yet', 30, B.muted, '700');
+    this.noKing.anchor.set(1, 0.5);
+    this.noKing.position.set(1034, row1);
+    this.root.addChild(this.king, this.noKing);
 
-    this.root.addChild(this.feastBar);
-    this.feastText = label('FEAST', 36);
-    this.feastText.anchor.set(0, 0.5);
-    this.feastText.position.set(52, top + 88);
-    this.root.addChild(this.feastText);
-    this.hint = label('type join', 38, 0xffe066);
-    this.hint.anchor.set(1, 0.5);
-    this.hint.position.set(1040, top + 88);
-    this.root.addChild(this.hint);
+    // Row 2 left: join pill
+    const icon = new Sprite(tex.chat);
+    icon.anchor.set(0.5);
+    icon.width = 40;
+    icon.height = 37;
+    icon.position.set(34, 0);
+    this.joinText = label('Type JOIN to play', 36, B.ink, { stroke: { color: B.ink, width: 0 } });
+    this.joinText.anchor.set(0, 0.5);
+    this.joinText.position.set(62, 2);
+    this.join.addChild(this.joinBg, icon, this.joinText);
+    this.join.position.set(40, row2);
+    this.root.addChild(this.join);
+
+    // Row 2 right: like meter
+    this.root.addChild(this.meter);
+    this.meterText = body('', 28, 0xffffff, '800');
+    this.meterText.position.set(780, row2);
+    this.root.addChild(this.meterText);
   }
 
   update(sim: Sim, now: number): void {
     const top = CONFIG.render.hudTop;
-    const left = sim.phaseTimeLeft();
+    const row2 = top + 86;
     const phase = sim.phase;
-    const time = formatTime(left);
-    if (this.timer.text !== time) this.timer.text = time;
-    if (phase !== this.lastPhase) {
+
+    // Phase + timer
+    const name = phase === 'play' ? 'PLAY' : phase === 'storm' ? 'STORM' : phase === 'join' ? 'JOIN' : 'RESULTS';
+    const t = `${name} ${formatTime(sim.phaseTimeLeft())}`;
+    if (this.timer.text !== t) this.timer.text = t;
+    if (phase !== this.phaseKey) {
       // Setting a style re-renders the text texture, so only do it on change.
-      this.timer.style.fill = phase === 'storm' ? 0xff5b5b : phase === 'join' ? 0xffe066 : phase === 'results' ? 0x9fb4ff : 0xffffff;
-      this.lastPhase = phase;
+      this.timer.style.fill = phase === 'storm' ? B.coral : phase === 'results' ? B.muted : B.yellow;
+      this.phaseKey = phase;
     }
 
-    const tops = sim.topOwners(3);
-    this.slots.forEach((s, i) => {
-      const t = tops[i];
-      const vis = !!t;
-      s.av.visible = s.ring.visible = s.mass.visible = s.rank.visible = vis;
-      if (!t) return;
-      const e = this.avatars.get(t.ownerId, t.nickname, t.avatarUrl);
-      if (s.owner !== t.ownerId || s.ver !== e.version) {
-        s.av.texture = e.texture;
-        s.av.width = s.av.height = 52;
-        s.owner = t.ownerId;
-        s.ver = e.version;
+    // King card
+    const kingId = sim.kingOwner;
+    const kp = kingId ? sim.players.get(kingId) : undefined;
+    this.king.visible = !!kp;
+    this.noKing.visible = !kp;
+    if (kp && kingId) {
+      const e = this.avatars.get(kingId, kp.nickname, kp.avatarUrl);
+      if (this.kingKey !== kingId || this.kingVer !== e.version) {
+        this.kingAv.texture = e.texture;
+        this.kingAv.width = this.kingAv.height = 44;
+        this.kingName.text = clip(kp.nickname || '?', 10);
+        this.kingKey = kingId;
+        this.kingVer = e.version;
       }
-      const m = formatMass(t.mass);
-      if (s.mass.text !== m) s.mass.text = m;
-    });
-
-    // Feast meter
-    const need = CONFIG.likes.feastLikes;
-    const frac = sim.feastActive() ? 1 : Math.min(1, sim.feastProgress / need);
-    const x0 = 40, x1 = 640, y = top + 66, h = 44;
-    this.feastBar.clear();
-    this.feastBar.roundRect(x0, y, x1 - x0, h, h / 2).fill({ color: 0x000000, alpha: 0.55 }).stroke({ width: 3, color: 0xff7ac8, alpha: 0.9 });
-    if (frac > 0) {
-      const glow = sim.feastActive() ? 0.75 + 0.25 * Math.sin(now * 12) : 1;
-      this.feastBar.roundRect(x0 + 3, y + 3, Math.max(h - 6, (x1 - x0 - 6) * frac), h - 6, (h - 6) / 2).fill({ color: 0xff4fa3, alpha: glow });
+      const m = formatMass(sim.ownerMass(kingId));
+      if (this.kingMass.text !== m) this.kingMass.text = m;
+      // right-aligned layout: [crown][avatar] name mass |1034
+      const right = 1034;
+      const massX = right - this.kingMass.width;
+      const nameX = massX - 14 - this.kingName.width;
+      const avX = nameX - 12 - 25;
+      this.kingMass.x = massX;
+      this.kingName.x = nameX;
+      this.kingAv.x = this.kingRing.x = avX;
+      this.kingCrown.x = avX - 25 - 30;
+      this.kingCrown.rotation = Math.sin(now * 2.2) * 0.08;
     }
-    const feastLabel = sim.feastActive()
-      ? `FEAST! ${Math.ceil(sim.feastUntil - sim.time)}s`
-      : `♥ FEAST ${Math.floor(sim.feastProgress)}/${need}`;
-    if (this.feastText.text !== feastLabel) this.feastText.text = feastLabel;
 
-    // Queue indicator (alive cap reached): cycles "Queue: N" and the next 3 names in the hint slot.
+    // Join pill (queue indicator lives here when the arena is full)
     const q = sim.queueView();
-    let hint = phase === 'join' ? 'TYPE  join  NOW!' : phase === 'storm' ? 'STORM! to center' : phase === 'results' ? 'next round soon' : 'type join to play';
+    let jt = 'Type JOIN to play';
     if (q.length > 0) {
-      const frames = [`Queue: ${q.length}`, ...q.next.map((n, i) => `${i + 1}. ${clip(n, 11)}`)];
-      hint = frames[Math.floor(now / 1.6) % frames.length];
+      const frames = [`Queue: ${q.length}`, ...q.next.map((n, i) => `Next ${i + 1}: ${clip(n, 10)}`)];
+      jt = frames[Math.floor(now / 1.6) % frames.length];
     }
-    if (this.hint.text !== hint) this.hint.text = hint;
-    const hintColor = q.length > 0 ? 0x9fdcff : 0xffe066;
-    if (hintColor !== this.hintColor) {
-      this.hint.style.fill = hintColor;
-      this.hintColor = hintColor;
+    if (this.joinText.text !== jt) this.joinText.text = jt;
+    const w = Math.round(62 + this.joinText.width + 24);
+    if (w !== this.joinW) {
+      this.joinW = w;
+      this.joinBg.clear().roundRect(0, -26, w, 52, 26).fill(B.yellow).stroke({ width: 3, color: 0xffffff, alpha: 0.6 });
     }
-    this.hint.scale.set(phase === 'join' && q.length === 0 ? 1 + 0.06 * Math.sin(now * 8) : 1);
+    const joining = phase === 'join';
+    const pulse = joining ? 1.1 + 0.06 * Math.sin(now * 7) : 1;
+    this.join.scale.set(pulse);
+    this.join.y = row2;
+
+    // Like meter: Likes -> FOOD RAIN
+    const need = CONFIG.likes.feastLikes;
+    const active = sim.feastActive();
+    const frac = active ? 1 : Math.min(1, sim.feastProgress / need);
+    const x0 = 548, x1 = 1034, h = 46, y = row2 - h / 2;
+    this.meter.clear();
+    this.meter.roundRect(x0, y, x1 - x0, h, h / 2).fill({ color: 0x000000, alpha: 0.45 }).stroke({ width: 3, color: B.cobalt, alpha: 0.9 });
+    if (frac > 0) {
+      const glow = active ? 0.75 + 0.25 * Math.sin(now * 12) : 1;
+      this.meter.roundRect(x0 + 4, y + 4, Math.max(h - 8, (x1 - x0 - 8) * frac), h - 8, (h - 8) / 2).fill({ color: active ? B.yellow : B.cobalt, alpha: glow });
+    }
+    const mt = active ? `FOOD RAIN! ${Math.ceil(sim.feastUntil - sim.time)}s` : 'Likes → FOOD RAIN';
+    if (this.meterText.text !== mt) this.meterText.text = mt;
+    this.meterText.position.set((x0 + x1) / 2, row2);
   }
 }
 
 /**
- * Gift legend, right side of the 63-88 % band (bottom-left stays free for TikTok comments).
- * Row: real gift icon with a coin-price badge | gift name (36 px) / ability (36 px, ability color).
- * The price badge and the "any other gift" footer use SMALL_FONT: at 36 px the 410 px column cannot fit
- * name + ability + price (e.g. "Black hole" + "1,000" needs ~360 px next to the icon).
+ * Gift legend ("full" mode), right side of the 63-88 % band (bottom-left stays free for TikTok comments).
+ * 5 rows: gift icon (~84 px), ability name (Lilita One 40 px, ability color), small "Gift - N coins" line.
+ * One footer line: "Any gift = grow".
  */
-const SMALL_FONT = 28;
-
 export function makeLegend(): Container {
   const R = CONFIG.render;
   const c = new Container();
@@ -139,86 +184,59 @@ export function makeLegend(): Container {
   const x0 = R.legendX, x1 = R.legendRight, top = R.legendTop + 6, bottom = R.legendBottom - 6;
   c.addChild(
     new Graphics()
-      .roundRect(x0, top, x1 - x0, bottom - top, 24)
-      .fill({ color: 0x050a1e, alpha: 0.6 })
-      .stroke({ width: 2, color: 0x2a3b7a, alpha: 0.8 }),
+      .roundRect(x0, top, x1 - x0, bottom - top, 28)
+      .fill({ color: B.ink, alpha: 0.85 })
+      .stroke({ width: 2, color: B.cobalt, alpha: 0.5 }),
   );
-  // Footer: what every other gift does.
-  const footer = smallLabel(`Any other gift: grow (+${CONFIG.gifts.massPerCoin} mass per coin)`, 0xb9c6ff, {
-    wordWrap: true, wordWrapWidth: x1 - x0 - 24, lineHeight: SMALL_FONT + 4,
-  });
+  const footer = label('Any gift = grow', 36, B.yellow);
   footer.anchor.set(0.5, 1);
-  footer.position.set((x0 + x1) / 2, bottom - 8);
+  footer.position.set((x0 + x1) / 2, bottom - 10);
   c.addChild(footer);
-  const rowsBottom = bottom - 16 - footer.height;
-  c.addChild(new Graphics().moveTo(x0 + 18, rowsBottom + 4).lineTo(x1 - 18, rowsBottom + 4).stroke({ width: 2, color: 0x2a3b7a, alpha: 0.8 }));
-
-  const h = (rowsBottom - top - 4) / rows.length;
-  const s = Math.min(R.legendIcon, Math.round(h - 14));
-  // Icon column: wide enough for the icon and the widest price badge.
-  const prices = rows.map((r) => smallLabel(r.coins.toLocaleString('en-US'), 0xffe08a));
-  const colW = Math.max(s, ...prices.map((p) => p.width + 30));
-  const ix = x0 + 12;
-  const cx = ix + colW / 2;
-  const tx = ix + colW + 12, maxW = x1 - 12 - tx;
+  const rowsBottom = bottom - 18 - footer.height;
+  const h = (rowsBottom - top - 8) / rows.length;
+  const s = Math.min(88, Math.round(h - 4));
+  const ix = x0 + 14;
+  const tx = ix + s + 16, maxW = x1 - 14 - tx;
   rows.forEach((row, i) => {
-    const y = top + 4 + i * h + h / 2;
-    const iy = y - 7; // icon sits a little high; the price badge overlaps its bottom edge
+    const y = top + 8 + i * h + h / 2;
     // Placeholder tile + glyph (gift not in the catalog, or until its icon loads).
     const tile = new Container();
-    tile.addChild(new Graphics().roundRect(cx - s / 2, iy - s / 2, s, s, 16).fill({ color: row.color, alpha: 0.25 }).stroke({ width: 4, color: row.color }));
-    const g = label(row.glyph, 48, row.color);
-    g.position.set(cx, iy);
+    tile.addChild(new Graphics().roundRect(ix, y - s / 2, s, s, 18).fill({ color: row.color, alpha: 0.22 }).stroke({ width: 4, color: row.color }));
+    const g = label(row.glyph, 52, row.color);
+    g.position.set(ix + s / 2, y);
     tile.addChild(g);
     c.addChild(tile);
-    const iconLayer = new Container();
-    c.addChild(iconLayer);
     if (row.icon) {
       // Local copy in game/public/gifts (never loaded from TikTok at runtime).
       Assets.load(`${import.meta.env.BASE_URL}${row.icon}`).then((tex: Texture) => {
         const icon = new Sprite(tex);
         icon.anchor.set(0.5);
         icon.scale.set(s / Math.max(tex.width, tex.height));
-        icon.position.set(cx, iy);
-        iconLayer.addChild(icon);
+        icon.position.set(ix + s / 2, y);
+        c.addChild(icon);
         tile.visible = false;
       }).catch(() => console.warn(`[legend] could not load ${row.icon}; showing placeholder`));
     }
-    // Coin price badge on the icon's bottom edge.
-    const price = prices[i];
-    const bw = price.width + 30, bh = SMALL_FONT + 6, bx = cx, by = iy + s / 2 + 2;
-    const badge = new Graphics()
-      .roundRect(bx - bw / 2, by - bh / 2, bw, bh, bh / 2).fill({ color: 0x1a1406, alpha: 0.92 }).stroke({ width: 2, color: 0xffc83d })
-      .circle(bx - bw / 2 + 12, by, 7).fill(0xffc83d);
-    price.position.set(bx + 7, by);
-    c.addChild(badge, price);
-    // Line 1: gift name (clipped to fit). Line 2: ability in its color.
-    const chars = [...row.giftName];
-    const name = label(row.giftName, R.minFont);
-    while (name.width > maxW && chars.length > 2) {
-      chars.pop();
-      name.text = chars.join('').trimEnd() + '…';
-    }
-    name.anchor.set(0, 0.5);
-    name.position.set(tx, y - 19);
-    const ability = label(row.label.toUpperCase(), R.minFont, row.color);
+    const ability = label(row.label, 40, row.color);
     ability.anchor.set(0, 0.5);
-    ability.position.set(tx, y + 20);
-    if (ability.width > maxW) ability.text = row.label; // "BLACK HOLE" vs "Black hole"
-    c.addChild(name, ability);
+    ability.position.set(tx, y - 15);
+    // Small line: "Rose - 1 coin" (shrinks to 25 px if needed, then clips the gift name).
+    const price = `${row.coins.toLocaleString('en-US')} coin${row.coins === 1 ? '' : 's'}`;
+    let size = 28;
+    let line = body(`${row.giftName} - ${price}`, size, B.muted, '700');
+    while (line.width > maxW && size > 25) {
+      size--;
+      line.destroy();
+      line = body(`${row.giftName} - ${price}`, size, B.muted, '700');
+    }
+    const chars = [...row.giftName];
+    while (line.width > maxW && chars.length > 2) {
+      chars.pop();
+      line.text = `${chars.join('').trimEnd()}… - ${price}`;
+    }
+    line.anchor.set(0, 0.5);
+    line.position.set(tx, y + 24);
+    c.addChild(ability, line);
   });
   return c;
-}
-
-/** Secondary legend text below the 36 px minimum (price badge, footer). */
-function smallLabel(text: string, fill: number, extra: Partial<TextStyleOptions> = {}): Text {
-  const t = new Text({
-    text,
-    style: {
-      fontFamily: CONFIG.render.fontFamily, fontSize: SMALL_FONT, fontWeight: '900', fill, align: 'center',
-      stroke: { color: 0x050814, width: 5, join: 'round' }, ...extra,
-    },
-  });
-  t.anchor.set(0.5);
-  return t;
 }

@@ -10,7 +10,7 @@ import { Overlays } from './overlays';
 import { label } from './text';
 import type { LegendMode } from '@typejoin/shared';
 import { Toasts } from './toasts';
-import { formatMass } from './text';
+import { clip, formatMass } from './text';
 import { Textures } from './textures';
 import { ArenaLayer, makeBackground } from './world';
 
@@ -41,6 +41,10 @@ export class Renderer {
   private crownState = { owner: null as string | null, x: 540, y: 300, fromX: 540, fromY: 300, flyT: 1, flashT: 1 };
   private now = 0;
   private trailAcc = 0;
+  /** World container (shaken on Black Hole / King change; HUD and legend stay still). */
+  private world!: Container;
+  private shakeT = 0;
+  private shakeAmp = 0;
 
   constructor(app: Application) {
     const stage = app.stage;
@@ -55,6 +59,7 @@ export class Renderer {
     const fieldMask = new Graphics().circle(CONFIG.arena.cx, CONFIG.arena.cy, CONFIG.arena.radius + 24).fill(0xffffff);
     this.balls.fields.mask = fieldMask;
     const world = new Container();
+    this.world = world;
     world.addChild(fieldMask);
     world.addChild(
       this.arena.floor,
@@ -91,6 +96,7 @@ export class Renderer {
     this.dashTrails(sim);
     this.blackHoleSuck(sim, dt);
     this.updateCrown(sim, dt);
+    this.updateShake(dt);
     this.particles.update(dt);
     this.floaters.update(dt);
     this.hud.update(sim, now);
@@ -152,7 +158,10 @@ export class Renderer {
           this.floaters.add(e.units > 1 ? `${txt} x${e.units}` : txt, b.x, b.y - b.radius - 50, 46, color, 1.4);
           P.burst(T.softDot, b.x, b.y, 24, 300, color, 0.6, 0.6);
         }
-        if (e.ability === 'blackHole') this.overlays.announceName(e.nickname, 'BLACK HOLE', this.now);
+        if (e.ability === 'blackHole') {
+          this.overlays.announceName(e.nickname, 'BLACK HOLE', this.now);
+          this.shake(18, 0.45);
+        }
         break;
       }
       case 'gift': {
@@ -165,7 +174,7 @@ export class Renderer {
         break;
       case 'feast':
         if (e.active) {
-          this.floaters.add('FEAST!', CONFIG.arena.cx, CONFIG.arena.cy, 140, 0xff4fa3, 1.8, -20);
+          this.floaters.add('FOOD RAIN!', CONFIG.arena.cx, CONFIG.arena.cy, 120, CONFIG.brand.yellow, 1.8, -20);
         }
         break;
       case 'kingChanged': {
@@ -173,7 +182,19 @@ export class Renderer {
         cs.fromX = cs.x;
         cs.fromY = cs.y;
         cs.flyT = cs.owner ? 0 : 1; // first king: crown simply appears
+        if (e.from && e.to) this.shake(10, 0.3); // a real King change, not the first crowning
         cs.owner = e.to;
+        break;
+      }
+      case 'spawn': {
+        if (e.isBot) break;
+        const v = this.viewPos(e.ballId);
+        const b = sim.ballById(e.ballId);
+        const x = v?.x ?? b?.x, y = v?.y ?? b?.y, r = v?.r ?? b?.radius ?? 30;
+        if (x === undefined || y === undefined) break;
+        const name = sim.players.get(e.ownerId)?.nickname ?? '';
+        this.floaters.add(`+${clip(name || 'player', 10)}`, x, y - r - 30, 38, CONFIG.brand.yellow, 1.1, -70);
+        P.burst(T.softDot, x, y, 14, 220, CONFIG.brand.yellow, 0.45, 0.45);
         break;
       }
       case 'botLeft':
@@ -192,6 +213,23 @@ export class Renderer {
       default:
         break;
     }
+  }
+
+  /** Short screen shake of the world (Black Hole, King change only). */
+  private shake(amp: number, sec: number): void {
+    this.shakeAmp = Math.max(this.shakeAmp, amp);
+    this.shakeT = Math.max(this.shakeT, sec);
+  }
+
+  private updateShake(dt: number): void {
+    if (this.shakeT <= 0) {
+      this.world.position.set(0, 0);
+      return;
+    }
+    this.shakeT -= dt;
+    const a = this.shakeAmp * Math.max(0, Math.min(1, this.shakeT / 0.3));
+    this.world.position.set((Math.random() * 2 - 1) * a, (Math.random() * 2 - 1) * a);
+    if (this.shakeT <= 0) this.shakeAmp = 0;
   }
 
   private ringFlash(x: number, y: number, r: number, color: number): void {
@@ -277,9 +315,9 @@ export class Renderer {
 /** The single line shown under the top bar when the legend is off. */
 function makeGrowLine(): Container {
   const c = new Container();
-  const t = label('Any gift = grow', CONFIG.render.minFont, 0xffd86b);
+  const t = label('Any gift = grow', CONFIG.render.minFont, CONFIG.brand.yellow);
   const w = t.width + 48, h = 54;
-  c.addChild(new Graphics().roundRect(-w / 2, -h / 2, w, h, h / 2).fill({ color: 0x050a1e, alpha: 0.8 }).stroke({ width: 2, color: 0x2a3b7a, alpha: 0.9 }), t);
+  c.addChild(new Graphics().roundRect(-w / 2, -h / 2, w, h, h / 2).fill({ color: CONFIG.brand.ink, alpha: 0.85 }).stroke({ width: 2, color: CONFIG.brand.cobalt, alpha: 0.8 }), t);
   c.position.set(CONFIG.canvas.width / 2, CONFIG.render.hudBottom + 34);
   c.visible = false;
   return c;

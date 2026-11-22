@@ -91,6 +91,7 @@
     <label class="slider">Likes / sec <input id="likesPerSec" type="range" min="0" max="200" step="1" /> <span id="likesPerSecV"></span></label>
     <label class="slider">Gifts / min <input id="giftsPerMin" type="range" min="0" max="60" step="1" /> <span id="giftsPerMinV"></span></label>
     <div class="row">
+      <label style="display:flex;gap:6px;align-items:center;margin-right:8px"><input type="checkbox" id="fakeAvatars" onchange="cmd({cmd:'fakeAvatars', on:this.checked})" /> Fake avatars</label>
       <button onclick="preset(30, 40, 8)">Lively clip preset</button>
       <button class="alt" onclick="preset(8, 10, 2)">Calm</button>
       <button class="alt" onclick="preset(0, 0, 0)">Stop</button>
@@ -170,6 +171,7 @@
     if (first) {
       first = false;
       for (const k of Object.keys(s.rates)) { document.getElementById(k).value = s.rates[k]; document.getElementById(k + 'V').textContent = s.rates[k]; }
+      document.getElementById('fakeAvatars').checked = !!s.fakeAvatars;
       renderGifts(s.gifts);
     }
     if (s.users.length !== lastUserCount) {

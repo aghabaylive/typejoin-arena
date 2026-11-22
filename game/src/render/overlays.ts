@@ -25,13 +25,13 @@ export class Overlays {
 
   constructor(private tex: Textures, private avatars: AvatarCache) {
     const { cx, cy } = CONFIG.arena;
-    this.joinNum = label('10', 220, 0xffe066);
+    this.joinNum = label('10', 220, 0xffd43b);
     this.joinNum.position.set(cx, cy - 60);
     this.joinText = label('TYPE  join', 96, 0xffffff);
     this.joinText.position.set(cx, cy + 110);
-    this.stormNum = label('10', 260, 0xff3b4a);
+    this.stormNum = label('10', 260, 0xff5a5f);
     this.stormNum.position.set(cx, cy);
-    this.announce = label('', 110, 0xffc83d, { wordWrap: true, wordWrapWidth: 1000, breakWords: true });
+    this.announce = label('', 110, 0xffd43b, { wordWrap: true, wordWrapWidth: 1000, breakWords: true });
     this.announce.position.set(cx, cy - 40);
     this.announceSub = label('', 64, 0xd2a8ff);
     this.announceSub.position.set(cx, cy + 70);
@@ -40,7 +40,7 @@ export class Overlays {
     this.banner = new Container();
     this.banner.visible = false;
     const R = CONFIG.render;
-    this.banner.addChild(new Graphics().rect(0, R.hudBottom, CONFIG.canvas.width, R.arenaBottom - R.hudBottom).fill({ color: 0x02040c, alpha: 0.72 }));
+    this.banner.addChild(new Graphics().rect(0, R.hudBottom, CONFIG.canvas.width, R.arenaBottom - R.hudBottom).fill({ color: 0x12103a, alpha: 0.72 }));
     this.bannerText = label('', 96, 0xffffff);
     this.bannerText.position.set(cx, cy);
     this.banner.addChild(this.bannerText);
@@ -51,7 +51,7 @@ export class Overlays {
       this.bannerShown = text;
       if (text) {
         this.bannerText.text = text;
-        this.bannerText.style.fill = text === 'LIVE ended' ? 0xff5b5b : 0xffe066;
+        this.bannerText.style.fill = text === 'LIVE ended' ? 0xff5a5f : 0xffd43b;
       }
       this.banner.visible = !!text;
       if (text) this.root.addChild(this.banner); // keep on top
@@ -61,7 +61,7 @@ export class Overlays {
   }
 
   /** Huge sender-name announcement (black hole). */
-  announceName(name: string, sub: string, now: number, color = 0xffc83d): void {
+  announceName(name: string, sub: string, now: number, color = 0xffd43b): void {
     this.announce.text = clip(name, 16);
     this.announce.style.fill = color;
     this.announceSub.text = sub;
@@ -121,14 +121,14 @@ export class Overlays {
     c.alpha = 0;
     const top = R.hudBottom + 6, bottom = R.arenaBottom - 6;
     c.addChild(
-      new Graphics().roundRect(24, top, 1032, bottom - top, 30).fill({ color: 0x050a1e, alpha: 0.93 }).stroke({ width: 4, color: 0xffc83d, alpha: 0.9 }),
+      new Graphics().roundRect(24, top, 1032, bottom - top, 30).fill({ color: 0x12103a, alpha: 1 }).stroke({ width: 4, color: 0xffd43b, alpha: 0.9 }),
     );
-    const title = label(`ROUND ${r.roundNo} RESULTS`, 64, 0xffc83d);
+    const title = label(`ROUND ${r.roundNo} RESULTS`, 64, 0xffd43b);
     title.position.set(540, top + 56);
     c.addChild(title);
     const cards: [string, TitleEntry | null, (e: TitleEntry) => string, number][] = [
-      ['KING', r.king, (e) => formatMass(e.value), 0xffc83d],
-      ['KILLER', r.killer, (e) => `${e.value} kill${e.value === 1 ? '' : 's'}`, 0xff5b5b],
+      ['KING', r.king, (e) => formatMass(e.value), 0xffd43b],
+      ['KILLER', r.killer, (e) => `${e.value} kill${e.value === 1 ? '' : 's'}`, 0xff5a5f],
       ['BEST FREE', r.bestFree, (e) => formatMass(e.value), 0x3dff9b],
     ];
     cards.forEach(([name, entry, val, color], i) => {
@@ -164,12 +164,12 @@ export class Overlays {
       v.position.set(x, y + 306);
       c.addChild(nm, v);
     });
-    const lbTitle = label('SESSION TOP 5', 46, 0x9fb4ff);
+    const lbTitle = label('SESSION TOP 5', 46, 0xb9bde6);
     lbTitle.position.set(540, top + 490);
     c.addChild(lbTitle);
     r.top.forEach((row, i) => {
       const y = top + 548 + i * 52;
-      const rank = label(`${i + 1}.`, 36, i === 0 ? 0xffc83d : 0xffffff);
+      const rank = label(`${i + 1}.`, 36, i === 0 ? 0xffd43b : 0xffffff);
       rank.anchor.set(1, 0.5);
       rank.position.set(250, y);
       const av = new Sprite(this.avatars.get(row.userId, row.nickname, row.avatarUrl).texture);
@@ -179,13 +179,13 @@ export class Overlays {
       const nm = label(clip(row.nickname, 16), 36);
       nm.anchor.set(0, 0.5);
       nm.position.set(325, y);
-      const pts = label(`${row.points} pts`, 36, 0xffd86b);
+      const pts = label(`${row.points} pts`, 36, 0xffd43b);
       pts.anchor.set(1, 0.5);
       pts.position.set(860, y);
       c.addChild(rank, av, nm, pts);
     });
     if (r.top.length === 0) {
-      const none = label('no players yet — type join!', 38, 0x9fb4ff);
+      const none = label('no players yet — type join!', 38, 0xb9bde6);
       none.position.set(540, top + 600);
       c.addChild(none);
     }

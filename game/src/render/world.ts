@@ -4,9 +4,11 @@ import type { Sim } from '../sim/Sim';
 import { hashString } from '../sim/util';
 import type { Textures } from './textures';
 
-const PELLET_COLORS = [0xff5b8a, 0xffd23d, 0x3dffb0, 0x3dc8ff, 0xb98bff, 0xff9a3d];
+const PELLET_COLORS = CONFIG.brand.pellets;
+/** Visual spike radius (collision radius stays CONFIG.spikes.radius). */
+const SPIKE_VISUAL_R = 28;
 
-/** Static backdrop: navy, subtle hex grid, vignette. */
+/** Static backdrop: brand ink, hex grid at low opacity, vignette. */
 export function makeBackground(tex: Textures): Container {
   const c = new Container();
   const { width, height } = CONFIG.canvas;
@@ -28,7 +30,7 @@ export function makeBackground(tex: Textures): Container {
       g.closePath();
     }
   }
-  g.stroke({ width: 2, color: R.hexColor, alpha: 0.55 });
+  g.stroke({ width: 2, color: R.hexColor, alpha: 0.22 });
   c.addChild(g);
   const v = new Sprite(tex.vignette);
   v.width = width;
@@ -51,9 +53,9 @@ export class ArenaLayer {
 
   constructor(private tex: Textures) {
     const { cx, cy, radius } = CONFIG.arena;
-    this.floor.circle(cx, cy, radius).fill({ color: 0x0f1a42, alpha: 0.85 });
-    // inner rings for depth
-    for (let i = 1; i <= 3; i++) this.floor.circle(cx, cy, (radius * i) / 4).stroke({ width: 2, color: 0x24346e, alpha: 0.5 });
+    // Floor slightly lighter than the ink background, with faint depth rings.
+    this.floor.circle(cx, cy, radius).fill({ color: CONFIG.brand.floor, alpha: 0.95 });
+    for (let i = 1; i <= 3; i++) this.floor.circle(cx, cy, (radius * i) / 4).stroke({ width: 2, color: 0x2c2a72, alpha: 0.45 });
   }
 
   update(sim: Sim, now: number, dt: number, onTrail: (x: number, y: number) => void): void {
@@ -69,16 +71,19 @@ export class ArenaLayer {
     const pulse = storm ? 0.5 + 0.5 * Math.sin(now * 6) : 0.5 + 0.5 * Math.sin(now * 1.5);
     const color = storm ? CONFIG.render.stormColor : CONFIG.render.rimColor;
     this.rim.clear();
-    for (let i = 4; i >= 1; i--) {
-      this.rim.circle(cx, cy, radius + i * 4).stroke({ width: i * 8, color, alpha: 0.05 + 0.04 * pulse });
+    // Cobalt glow outside the rim (coral during the storm).
+    for (let i = 5; i >= 1; i--) {
+      this.rim.circle(cx, cy, radius + i * 5).stroke({ width: i * 9, color, alpha: 0.06 + 0.05 * pulse });
     }
-    this.rim.circle(cx, cy, radius).stroke({ width: 6, color, alpha: 0.85 + 0.15 * pulse });
+    this.rim.circle(cx, cy, radius).stroke({ width: 7, color, alpha: 0.95 });
+    this.rim.circle(cx, cy, radius - 4).stroke({ width: 2, color: 0xffffff, alpha: 0.18 });
     this.storm.clear();
     if (storm) {
       const safe = sim.safeRadius();
-      this.storm.circle(cx, cy, radius).fill({ color: CONFIG.render.stormColor, alpha: 0.18 + 0.1 * pulse });
+      this.storm.circle(cx, cy, radius).fill({ color: CONFIG.brand.coral, alpha: 0.2 + 0.1 * pulse });
       this.storm.circle(cx, cy, safe).cut();
-      this.storm.circle(cx, cy, safe).stroke({ width: 5, color: 0xffffff, alpha: 0.5 + 0.4 * pulse });
+      this.storm.circle(cx, cy, safe).stroke({ width: 6, color: CONFIG.brand.coral, alpha: 0.75 + 0.25 * pulse });
+      this.storm.circle(cx, cy, safe - 4).stroke({ width: 2, color: 0xffffff, alpha: 0.5 });
     }
   }
 
@@ -88,14 +93,15 @@ export class ArenaLayer {
       seen.add(p.id);
       let s = this.pelletSprites.get(p.id);
       if (!s) {
-        s = this.pelletPool.pop() ?? new Sprite(this.tex.dot);
+        s = this.pelletPool.pop() ?? new Sprite(this.tex.pellet);
         s.anchor.set(0.5);
         s.tint = PELLET_COLORS[hashString(String(p.id)) % PELLET_COLORS.length];
         s.visible = true;
         this.pellets.addChild(s);
         this.pelletSprites.set(p.id, s);
       }
-      const r = Math.min(26, CONFIG.pellets.radius * (1 + 0.35 * Math.sqrt(Math.max(0, p.value - 1))));
+      // Slightly smaller than the collision radius; the texture's glow extends beyond the core.
+      const r = Math.min(22, CONFIG.pellets.radius * 0.8 * (1 + 0.35 * Math.sqrt(Math.max(0, p.value - 1))));
       const age = sim.time - p.born;
       let y = p.y;
       let a = 1;
@@ -105,7 +111,7 @@ export class ArenaLayer {
         a = 1 - k * 0.7;
       } else if (age < 0.2) a = age / 0.2;
       s.position.set(p.x, y);
-      s.width = s.height = r * 2.4;
+      s.width = s.height = r * 5; // texture core = 15 % of width -> core radius 0.75 r, glow out to 2.5 r
       s.alpha = a;
     }
     for (const [id, s] of this.pelletSprites) {
@@ -132,9 +138,10 @@ export class ArenaLayer {
       }
       s.alpha = Math.min(1, s.alpha + dt * 3);
       s.position.set(sp.x, sp.y);
-      const size = CONFIG.spikes.radius * 2 * (1 + 0.06 * Math.sin(now * 4 + sp.id));
+      // Gentle pulse + slow rotation: reads as "danger", not decoration.
+      const size = SPIKE_VISUAL_R * 2 * (1 + 0.07 * Math.sin(now * 3 + sp.id));
       s.width = s.height = size;
-      s.rotation += dt * 0.6;
+      s.rotation += dt * 0.35;
     }
   }
 

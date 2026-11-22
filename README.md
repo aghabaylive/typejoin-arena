@@ -17,6 +17,8 @@ npm run dev
 
 For OBS, add a Browser Source at 1080x1920 pointing at the game URL.
 
+Fake viewers get generated illustrated avatars (made locally from their id; never photos), so the design can be judged with pictures. Turn them off with the **Fake avatars** checkbox in /dev or `FAKE_AVATARS=0`.
+
 ### Record a lively 3-minute clip without real viewers
 1. Open the game and /dev.
 2. Click **Add N viewers** with N = 30.

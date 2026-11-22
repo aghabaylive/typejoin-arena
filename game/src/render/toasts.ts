@@ -17,10 +17,10 @@ export class Toasts {
 
   add(text: string): void {
     const c = new Container();
-    const t: Text = label(clip(text, 40), 36, 0xffe9a8);
+    const t: Text = label(clip(text, 40), 36, 0xffd43b);
     const w = Math.min(1032, t.width + 56), h = 58;
     c.addChild(
-      new Graphics().roundRect(-w / 2, -h / 2, w, h, h / 2).fill({ color: 0x050a1e, alpha: 0.9 }).stroke({ width: 3, color: 0xffc83d, alpha: 0.9 }),
+      new Graphics().roundRect(-w / 2, -h / 2, w, h, h / 2).fill({ color: 0x12103a, alpha: 0.9 }).stroke({ width: 3, color: 0xffd43b, alpha: 0.9 }),
       t,
     );
     c.position.set(540, CONFIG.render.hudBottom + 36 + this.offsetY);

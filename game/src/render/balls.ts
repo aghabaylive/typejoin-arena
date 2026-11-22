@@ -1,25 +1,27 @@
-import { BitmapFont, BitmapText, Container, Sprite, type Text } from 'pixi.js';
+import { BitmapFont, BitmapText, Container, Graphics, Sprite, type Text } from 'pixi.js';
 import { CONFIG, tierColor } from '../config';
 import type { Sim } from '../sim/Sim';
 import type { Ball } from '../sim/types';
 import type { AvatarCache } from './avatars';
 import { Textures } from './textures';
-import { clip, formatMass, label } from './text';
+import { body, clip, formatMass } from './text';
+import { fadedTags, type BodyCircle, type TagBox } from './tagLayout';
 
-const BOT_RING = 0x8a8f9c;
+const BOT_RING = 0x5d6080;
+/** Name tag sizing (canvas px). Name >= 30 px stays ~11 px tall on a 390 px phone screen. */
+const TAG = { nameSize: 30, massSize: 28, h: 46, padX: 16, gap: 10, overlap: 0.3, fadedAlpha: 0.3, minRadiusForMass: 30 };
 let fontInstalled = false;
 
+/** Mass numbers: Lilita One as a bitmap font (cheap to update every few frames). */
 function ensureMassFont(): void {
   if (fontInstalled) return;
   fontInstalled = true;
   BitmapFont.install({
     name: 'MassFont',
     style: {
-      fontFamily: CONFIG.render.fontFamily,
-      fontSize: CONFIG.render.minFont,
-      fontWeight: '900',
-      fill: 0xffffff,
-      stroke: { color: 0x050814, width: 6, join: 'round' },
+      fontFamily: CONFIG.render.titleFont,
+      fontSize: TAG.massSize,
+      fill: CONFIG.brand.yellow,
     },
     chars: [['0', '9'], '.kM+'],
   });
@@ -28,15 +30,24 @@ function ensureMassFont(): void {
 export class BallView {
   readonly root = new Container();
   readonly body = new Container();
+  readonly shadow: Sprite;
+  readonly glow: Sprite;
   readonly avatar = new Sprite();
+  readonly shade: Sprite;
+  readonly gloss: Sprite;
   readonly ring: Sprite;
   readonly shield: Sprite;
   readonly magnet: Sprite;
   readonly hole: Sprite;
   readonly dashGlow: Sprite;
-  readonly labels = new Container();
+  /** Name tag (lives in the labels layer, above all balls). */
+  readonly tag = new Container();
+  readonly pill = new Graphics();
   name: Text | null = null;
   mass: BitmapText;
+  pillKey = '';
+  tagW = 0;
+  tagAlpha = 1;
   avatarVersion = -1;
   massShown = '';
   massUpdateAt = 0;
@@ -49,7 +60,7 @@ export class BallView {
   y = 0;
   r = 0;
 
-  constructor(tex: Textures, public readonly ballId: number, now: number) {
+  constructor(tex: Textures, public readonly ballId: number, now: number, isBot: boolean) {
     this.born = now;
     this.hole = new Sprite(tex.swirl);
     this.magnet = new Sprite(tex.bubble);
@@ -61,23 +72,31 @@ export class BallView {
     }
     this.magnet.tint = 0xb05bff;
     this.dashGlow.tint = 0x3dd6ff;
+    this.shadow = new Sprite(tex.softDot);
+    this.shadow.tint = 0x000000;
+    this.shadow.alpha = isBot ? 0.25 : 0.45;
+    this.glow = new Sprite(tex.softDot);
+    this.glow.visible = false;
     this.avatar.anchor.set(0.5);
-    this.ring = new Sprite(tex.ring);
-    this.ring.anchor.set(0.5);
+    this.shade = new Sprite(tex.innerShade);
+    this.gloss = new Sprite(tex.gloss);
+    this.ring = new Sprite(isBot ? tex.ringThin : tex.ringThick);
     this.shield = new Sprite(tex.bubble);
-    this.shield.anchor.set(0.5);
     this.shield.tint = 0x3dff9b;
     this.shield.visible = false;
-    this.body.addChild(this.avatar, this.ring, this.shield);
+    for (const s of [this.shadow, this.glow, this.shade, this.gloss, this.ring, this.shield]) s.anchor.set(0.5);
+    this.gloss.visible = !isBot;
+    this.body.addChild(this.shadow, this.glow, this.avatar, this.shade, this.gloss, this.ring, this.shield);
     ensureMassFont();
-    this.mass = new BitmapText({ text: '', style: { fontFamily: 'MassFont', fontSize: CONFIG.render.minFont } });
-    this.mass.anchor.set(0.5, 0);
-    this.labels.addChild(this.mass);
+    this.mass = new BitmapText({ text: '', style: { fontFamily: 'MassFont', fontSize: TAG.massSize } });
+    this.mass.anchor.set(0, 0.5);
+    this.tag.addChild(this.pill, this.mass);
+    this.tag.visible = false; // set per frame (players only; bots never get a name or mass)
   }
 
   destroy(): void {
     this.root.destroy({ children: true });
-    this.labels.destroy({ children: true });
+    this.tag.destroy({ children: true });
   }
 }
 
@@ -85,27 +104,49 @@ export class BallView {
 export class BallLayer {
   readonly fields = new Container(); // magnet / black-hole visuals under everything
   readonly bodies = new Container();
+  /** Name tags, drawn above ALL balls. */
   readonly labels = new Container();
   readonly views = new Map<number, BallView>();
 
   constructor(private tex: Textures, private avatars: AvatarCache) {
     this.bodies.sortableChildren = true;
+    this.labels.sortableChildren = true;
   }
 
   update(sim: Sim, alpha: number, now: number, dt: number): void {
     const seen = new Set<number>();
     const t = sim.time;
+    const boxes: TagBox[] = [];
+    const bodies: BodyCircle[] = [];
+    // One tag per player: on their largest piece (split pieces would repeat the same name).
+    const tagged = new Map<string, Ball>();
+    for (const b of sim.balls) {
+      if (b.isBot) continue;
+      const cur = tagged.get(b.ownerId);
+      if (!cur || b.mass > cur.mass) tagged.set(b.ownerId, b);
+    }
     for (const b of sim.balls) {
       seen.add(b.id);
       let v = this.views.get(b.id);
       if (!v) {
-        v = new BallView(this.tex, b.id, now);
+        v = new BallView(this.tex, b.id, now, b.isBot);
         this.views.set(b.id, v);
         this.bodies.addChild(v.body);
         this.fields.addChild(v.root);
-        this.labels.addChild(v.labels);
+        this.labels.addChild(v.tag);
       }
+      v.tag.visible = !b.isBot && tagged.get(b.ownerId) === b;
       this.drawBall(sim, b, v, alpha, now, dt, t);
+      bodies.push({ id: b.id, mass: b.mass, x: v.x, y: v.y, r: v.r });
+      if (v.tag.visible) boxes.push({ id: b.id, mass: b.mass, x: v.tag.x, y: v.tag.y, w: v.tagW, h: TAG.h });
+    }
+    // Overlaps: the bigger ball's tag stays fully visible; a smaller ball's tag fades to 30 % when it hits a
+    // bigger tag or would cover a bigger ball's picture.
+    const faded = fadedTags(boxes, bodies);
+    for (const box of boxes) {
+      const v = this.views.get(box.id)!;
+      const target = faded.has(box.id) ? TAG.fadedAlpha : 1;
+      v.tagAlpha += (target - v.tagAlpha) * Math.min(1, dt * 12);
     }
     for (const [id, v] of this.views) {
       if (!seen.has(id)) {
@@ -154,12 +195,29 @@ export class BallLayer {
     v.body.scale.set(pop * (1 + w), pop * (1 - w));
     v.body.zIndex = b.mass;
     const d = r * 2;
+    const tier = b.isBot ? BOT_RING : tierColor(b.mass);
+    // depth: soft drop shadow below
+    v.shadow.width = d * 1.25;
+    v.shadow.height = d * 1.1;
+    v.shadow.position.set(0, r * 0.18);
+    // picture + inner shadow + gloss + ring
+    v.avatar.width = v.avatar.height = d * (b.isBot ? 0.94 : 0.84);
+    v.shade.width = v.shade.height = d * 0.84;
+    v.gloss.width = v.gloss.height = d * 0.84;
     v.ring.width = v.ring.height = d;
-    v.avatar.width = v.avatar.height = d * 0.88;
-    v.ring.tint = b.isBot ? BOT_RING : tierColor(b.mass);
-    // protection: translucent + blink
+    v.ring.tint = tier;
+    // outer glow for purple and gold tiers
+    const glowTier = !b.isBot && b.mass >= 5000;
+    v.glow.visible = glowTier;
+    if (glowTier) {
+      v.glow.tint = tier;
+      v.glow.width = v.glow.height = d * (1.45 + 0.05 * Math.sin(now * 3));
+      v.glow.alpha = 0.55;
+    }
+    // bots: low visual weight
     const prot = b.protectedUntil > t;
-    v.body.alpha = prot ? 0.45 + 0.15 * Math.sin(now * 14) : 1;
+    if (b.isBot) v.body.alpha = 0.55;
+    else v.body.alpha = prot ? 0.5 + 0.15 * Math.sin(now * 14) : 1;
     // shield bubble
     const shield = !!p && p.shieldUntil > t;
     v.shield.visible = shield;
@@ -192,20 +250,18 @@ export class BallLayer {
       v.dashGlow.width = v.dashGlow.height = d * 2.2;
       v.dashGlow.alpha = 0.6 + 0.3 * Math.sin(now * 20);
     }
-    // labels
-    if (!b.isBot) {
-      if (!v.name) {
-        v.name = label(clip(p?.nickname ?? '?', 14), CONFIG.render.minFont);
-        v.name.anchor.set(0.5, 0);
-        v.labels.addChild(v.name);
-      }
-      v.name.position.set(x, y + r * pop + 4);
-      v.mass.position.set(x, y + r * pop + 4 + v.name.height - 6);
-    } else {
-      v.mass.position.set(x, y + r * pop + 4);
+    if (v.tag.visible) this.drawTag(b, v, p?.nickname || '?', x, y, r * pop, now, tier, prot);
+  }
+
+  /** Name tag attached to the ball's bottom edge: pill overlapping the ring by ~30 % of its height. */
+  private drawTag(b: Ball, v: BallView, nickname: string, x: number, y: number, r: number, now: number, tier: number, prot: boolean): void {
+    if (!v.name) {
+      v.name = body(clip(nickname, 10), TAG.nameSize, 0xffffff, '700');
+      v.name.anchor.set(0, 0.5);
+      v.tag.addChildAt(v.name, 1);
     }
-    v.labels.alpha = prot ? 0.75 : 1;
-    if (now >= v.massUpdateAt) {
+    const showMass = r >= TAG.minRadiusForMass;
+    if (showMass && now >= v.massUpdateAt) {
       const s = formatMass(b.mass);
       if (s !== v.massShown) {
         v.mass.text = s;
@@ -213,7 +269,24 @@ export class BallLayer {
       }
       v.massUpdateAt = now + 0.15;
     }
-    v.mass.visible = CONFIG.render.showMassBelowName;
+    v.mass.visible = showMass;
+    const nameW = v.name.width;
+    const massW = showMass ? v.mass.width : 0;
+    const w = Math.round(TAG.padX * 2 + nameW + (showMass ? TAG.gap + massW : 0));
+    const h = TAG.h;
+    const key = `${w}|${tier}`;
+    if (key !== v.pillKey) {
+      v.pillKey = key;
+      v.pill.clear()
+        .roundRect(-w / 2, -h / 2, w, h, h / 2).fill({ color: CONFIG.brand.ink, alpha: 0.92 })
+        .stroke({ width: 4, color: tier, alpha: 1 });
+    }
+    v.tagW = w;
+    v.name.position.set(-w / 2 + TAG.padX, 0);
+    v.mass.position.set(-w / 2 + TAG.padX + nameW + TAG.gap, 1);
+    v.tag.position.set(x, y + r + h * (0.5 - TAG.overlap));
+    v.tag.zIndex = b.mass;
+    v.tag.alpha = v.tagAlpha * (prot ? 0.85 : 1);
   }
 }
 

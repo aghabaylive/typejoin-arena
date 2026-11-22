@@ -97,7 +97,7 @@ export class AvatarCache {
     g.fillStyle = grd;
     g.fillRect(0, 0, SIZE, SIZE);
     const text = initialsOf(nickname);
-    g.font = `900 ${text.length > 1 ? 104 : 128}px ${CONFIG.render.fontFamily}`;
+    g.font = `${text.length > 1 ? 112 : 136}px ${CONFIG.render.titleFont}`;
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     g.lineWidth = 10;

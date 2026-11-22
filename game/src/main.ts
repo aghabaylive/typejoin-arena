@@ -39,6 +39,12 @@ for (const m of missingMappedGifts()) {
 }
 
 const sim = new Sim({ seed: Number(params.get('seed') ?? Date.now() % 1e9) });
+// Lilita One is bundled locally (public/fonts); load it before any text or bitmap font is created.
+try {
+  await Promise.race([document.fonts.load(`48px ${CONFIG.render.titleFont}`), new Promise((r) => setTimeout(r, 3000))]);
+} catch {
+  // fall back to the next font in the stack
+}
 const renderer = new Renderer(app);
 const dev = new DevOverlay();
 

@@ -225,6 +225,7 @@ export async function startBridge(source: EventSource, cfg = BRIDGE_CONFIG): Pro
       return send(res, 200, {
         ...base,
         rates: source.rates,
+        fakeAvatars: source.fakeAvatars,
         users: source.users.map((u) => ({ userId: u.userId, nickname: u.nickname })),
         gifts: devGifts().map((g) => ({ ...g, ability: GIFT_ABILITIES.find((a) => GIFT_MAP[a] === g.giftId) ?? null })),
       });
@@ -246,6 +247,7 @@ export async function startBridge(source: EventSource, cfg = BRIDGE_CONFIG): Pro
         case 'share': source.share(userId); break;
         case 'chat': source.chat(String(body.text ?? ''), userId); break;
         case 'rates': source.setRates(body as never); break;
+        case 'fakeAvatars': source.fakeAvatars = body.on === true; break;
         default: return send(res, 400, { error: 'unknown cmd' });
       }
       return send(res, 200, { ok: true, rates: source.rates });

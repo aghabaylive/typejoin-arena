@@ -1,5 +1,6 @@
 import { GIFT_ABILITIES, GIFT_MAP, devGifts, findGift } from '@typejoin/shared';
 import type { EventSource, RawSink, RawSourceEvent, RawUser, SourceStatusListener } from './EventSource';
+import { fakeAvatarUrl } from './fakeAvatar';
 
 const ADJ = [
   'Happy', 'Sleepy', 'Turbo', 'Mega', 'Tiny', 'Lucky', 'Spicy', 'Cosmic', 'Sneaky', 'Wild',
@@ -51,6 +52,8 @@ export class FakeSource implements EventSource {
   }
   readonly users: RawUser[] = [];
   rates: FakeRates = { joinPerMin: 0, likesPerSec: 0, giftsPerMin: 0 };
+  /** Dev only: give fake viewers generated illustrated avatars (FAKE_AVATARS=0 or the dev panel turns it off). */
+  fakeAvatars = process.env.FAKE_AVATARS !== '0';
 
   private sink: RawSink | null = null;
   private timer: NodeJS.Timeout | null = null;
@@ -219,7 +222,7 @@ export class FakeSource implements EventSource {
   }
 
   private emit(e: RawSourceEvent): void {
-    this.sink?.(e);
+    this.sink?.(this.fakeAvatars && !e.avatarUrl ? { ...e, avatarUrl: fakeAvatarUrl(e.userId) } : e);
   }
 
   private later(ms: number, fn: () => void): void {
