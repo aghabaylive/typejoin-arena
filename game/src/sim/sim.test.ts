@@ -596,6 +596,45 @@ describe('crowding', () => {
     expect(crowdScaleTarget(10 * arenaArea)).toBe(0.5);
   });
 
+  it('scale target can be measured against a smaller zone (the storm safe zone)', () => {
+    const zone = 200;
+    const zoneArea = Math.PI * zone * zone;
+    expect(crowdScaleTarget(0.4 * zoneArea, CONFIG, zone)).toBe(1);
+    expect(crowdScaleTarget(0.8 * zoneArea, CONFIG, zone)).toBeCloseTo(Math.SQRT1_2, 9);
+    expect(crowdScaleTarget(5 * zoneArea, CONFIG, zone)).toBe(0.5);
+    // The same balls that fit the full arena are crowded in the small zone.
+    expect(crowdScaleTarget(0.8 * zoneArea)).toBe(1);
+  });
+
+  it('during the storm the size scale follows the safe zone area, not the arena', () => {
+    const place = (sim: Sim) => {
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
+        sim.debugSpawn({ ownerId: `s${i}`, mass: 100, x: cx + Math.cos(a) * 120, y: cy + Math.sin(a) * 120, protectedSec: 999 });
+      }
+      freeze(sim);
+    };
+    const area = 6 * Math.PI * radiusForMass(100) ** 2;
+    // Play: 6 balls cover ~22 % of the arena -> no shrink.
+    const play = quietSim();
+    place(play);
+    for (let i = 0; i < 180; i++) play.step(DT);
+    expect(crowdScaleTarget(area)).toBe(1);
+    expect(play.sizeScale).toBe(1);
+    // Late storm: the same balls cover ~87 % of the safe zone -> shrink towards sqrt(0.4 / 0.87).
+    const storm = quietSim();
+    storm.debugSetPhase('storm');
+    for (let i = 0; i < CONFIG.round.stormSec * 60 - 240; i++) storm.step(DT);
+    place(storm);
+    for (let i = 0; i < 180; i++) storm.step(DT);
+    const target = crowdScaleTarget(area, CONFIG, storm.safeRadius());
+    expect(target).toBeLessThan(0.75);
+    expect(target).toBeGreaterThanOrEqual(0.5);
+    expect(storm.sizeScale).toBeLessThan(0.8);
+    expect(storm.sizeScale).toBeCloseTo(target, 1);
+    for (const b of storm.balls) expect(b.mass).toBe(100); // rules still use mass
+  });
+
   it('100 balls shrink smoothly towards the target; radius scales, mass does not', () => {
     const sim = quietSim();
     for (let i = 0; i < 100; i++) {

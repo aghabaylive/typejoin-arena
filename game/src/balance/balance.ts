@@ -56,9 +56,15 @@ export interface ScenarioResult {
   medianNonGifterLifeSec: number;
   p25NonGifterLifeSec: number;
   kingChangesPerRound: number;
-  lowestPellets: number;
-  /** Where the lowest pellet count happened (phase, seconds left, safe radius, balls alive). */
-  lowestPelletsAt: string;
+  lowestPelletsPlay: number;
+  lowestPelletsStorm: number;
+  /** Where the lowest play-phase pellet count happened. */
+  lowestPelletsPlayAt: string;
+  /** Share of rounds the whale (1000-coin gifter) finishes in the live top 3 by mass. */
+  whaleTop3Rate: number;
+  /** Share of the round time after the whale's 1000-coin gift during which the whale is King. */
+  whaleKingShare: number;
+  medianRoseLifeSec: number;
   avgKillsPerRound: number;
   avgQueuePeak?: number;
 }
@@ -93,8 +99,13 @@ export function runScenario(pool: number, rounds: number, seed: number, override
   let totalKills = 0, totalTopKiller = 0;
   const nonGifterLives: number[] = [];
   const kingPerRound: number[] = [];
-  let lowestPellets = Infinity;
-  let lowestPelletsAt = '';
+  let lowestPlay = Infinity, lowestStorm = Infinity;
+  let lowestPlayAt = '';
+  const roseLives: number[] = [];
+  let whaleId = '';
+  let whaleHoleAt = Infinity;
+  let whaleKingSec = 0, whaleAfterSec = 0;
+  let whaleTop3 = 0;
   let queuePeakSum = 0, queuePeak = 0;
   let likeAcc = 0;
 
@@ -107,6 +118,7 @@ export function runScenario(pool: number, rounds: number, seed: number, override
     roundKills = new Map();
     kingChanges = 0;
     queuePeak = 0;
+    whaleHoleAt = Infinity;
     const t0 = sim.time;
     const R = sim.cfg.round;
     const end = t0 + R.joinSec + R.playSec + R.stormSec - 5;
@@ -115,20 +127,29 @@ export function runScenario(pool: number, rounds: number, seed: number, override
     shuffled.forEach((id, i) => {
       const role: Role = i === 0 ? 'whale' : i <= nRose ? 'rose' : i <= nRose + nMid ? 'mid' : 'none';
       roles.set(id, role);
+      if (role === 'whale') whaleId = id;
       at(t0 + rand() * (R.joinSec - 2), () => ev({ type: 'join', userId: id }));
       const when = () => t0 + rand() * (end - t0);
       if (role === 'rose') at(when(), () => gift(id, PLACEHOLDER_GIFT_IDS.rose, 1, 1 + Math.floor(rand() * 5)));
       if (role === 'mid') at(when(), () => gift(id, PLACEHOLDER_GIFT_IDS.spikeShot, 100, 1));
       if (role === 'whale') {
         at(when(), () => gift(id, PLACEHOLDER_GIFT_IDS.magnet, 500, 1));
-        at(when(), () => gift(id, PLACEHOLDER_GIFT_IDS.blackHole, 1000, 1));
+        at(when(), () => {
+          whaleHoleAt = sim.time;
+          gift(id, PLACEHOLDER_GIFT_IDS.blackHole, 1000, 1);
+        });
       }
     });
   };
 
   const endRound = () => {
     const end = sim.time;
-    for (const [id, t] of lifeStart) if (roles.get(id) === 'none') nonGifterLives.push(end - t); // censored at round end
+    for (const [id, t] of lifeStart) {
+      // censored at round end
+      if (roles.get(id) === 'none') nonGifterLives.push(end - t);
+      else if (roles.get(id) === 'rose') roseLives.push(end - t);
+    }
+    if (sim.topOwners(3).some((o) => o.ownerId === whaleId)) whaleTop3++;
     const kills = [...roundKills.values()].sort((a, b) => b - a);
     const sum = kills.reduce((s, k) => s + k, 0);
     allTopKills.push([kills[0] ?? 0, kills[1] ?? 0, kills[2] ?? 0]);
@@ -164,6 +185,7 @@ export function runScenario(pool: number, rounds: number, seed: number, override
         const start = lifeStart.get(e.ownerId);
         if (start !== undefined) {
           if (roles.get(e.ownerId) === 'none') nonGifterLives.push(sim.time - start);
+          else if (roles.get(e.ownerId) === 'rose') roseLives.push(sim.time - start);
           lifeStart.delete(e.ownerId);
         }
         if (e.killerOwner) roundKills.set(e.killerOwner, (roundKills.get(e.killerOwner) ?? 0) + 1);
@@ -180,12 +202,18 @@ export function runScenario(pool: number, rounds: number, seed: number, override
       } else if (e.type === 'kingChanged' && e.from && e.to && sim.combatEnabled()) kingChanges++;
     }
     if (sim.combatEnabled()) {
-      if (sim.pellets.length < lowestPellets) {
-        lowestPellets = sim.pellets.length;
-        lowestPelletsAt = `${sim.phase} ${sim.phaseTimeLeft().toFixed(0)}s left, safe r ${sim.safeRadius().toFixed(0)}, ${sim.balls.length} balls`;
+      if (sim.phase === 'play' && sim.pellets.length < lowestPlay) {
+        lowestPlay = sim.pellets.length;
+        lowestPlayAt = `play ${sim.phaseTimeLeft().toFixed(0)}s left, ${sim.balls.length} balls`;
       }
+      if (sim.phase === 'storm') lowestStorm = Math.min(lowestStorm, sim.pellets.length);
       const q = (sim as unknown as { joinQueue?: unknown[] }).joinQueue;
       if (q) queuePeak = Math.max(queuePeak, q.length);
+    }
+    // Whale crown time after the 1000-coin gift (until the round ends).
+    if (sim.phase !== 'results' && sim.time > whaleHoleAt) {
+      whaleAfterSec += DT;
+      if (sim.kingOwner === whaleId) whaleKingSec += DT;
     }
     if (sim.phase !== lastPhase) {
       // Lifetime counts combat time: lives that began in the join window start when play starts.
@@ -206,8 +234,12 @@ export function runScenario(pool: number, rounds: number, seed: number, override
     medianNonGifterLifeSec: +quantile(nonGifterLives, 0.5).toFixed(1),
     p25NonGifterLifeSec: +quantile(nonGifterLives, 0.25).toFixed(1),
     kingChangesPerRound: +avg(kingPerRound).toFixed(2),
-    lowestPellets: lowestPellets === Infinity ? 0 : lowestPellets,
-    lowestPelletsAt,
+    lowestPelletsPlay: lowestPlay === Infinity ? 0 : lowestPlay,
+    lowestPelletsStorm: lowestStorm === Infinity ? 0 : lowestStorm,
+    lowestPelletsPlayAt: lowestPlayAt,
+    whaleTop3Rate: +(whaleTop3 / rounds).toFixed(3),
+    whaleKingShare: +(whaleAfterSec ? whaleKingSec / whaleAfterSec : 0).toFixed(3),
+    medianRoseLifeSec: +quantile(roseLives, 0.5).toFixed(1),
     avgKillsPerRound: +(totalKills / rounds).toFixed(1),
     avgQueuePeak: +(queuePeakSum / rounds).toFixed(1),
   };
@@ -219,10 +251,12 @@ function main(): void {
   const t0 = Date.now();
   for (const pool of args.pools) results.push(runScenario(pool, args.rounds, args.seed, args.overrides));
   const secs = ((Date.now() - t0) / 1000).toFixed(1);
-  const head = ['viewers', 'top-3 kills (avg/round)', 'top killer share', 'non-gifter life median', 'p25', 'King changes/round', 'lowest pellets', 'kills/round', 'queue peak'];
+  const pct = (x: number) => `${(x * 100).toFixed(0)}%`;
+  const head = ['viewers', 'top-3 kills', 'top killer share', 'life median non-gift', 'p25', 'life median Rose', 'King chg/round', 'whale top 3', 'whale King after BH', 'min pellets play', 'min pellets storm', 'kills/round'];
   const rows = results.map((r) => [
-    String(r.pool), r.topKills.join(' / '), `${(r.topKillerShare * 100).toFixed(0)}%`, `${r.medianNonGifterLifeSec}s`,
-    `${r.p25NonGifterLifeSec}s`, String(r.kingChangesPerRound), String(r.lowestPellets), String(r.avgKillsPerRound), String(r.avgQueuePeak),
+    String(r.pool), r.topKills.join(' / '), pct(r.topKillerShare), `${r.medianNonGifterLifeSec}s`, `${r.p25NonGifterLifeSec}s`,
+    `${r.medianRoseLifeSec}s`, String(r.kingChangesPerRound), pct(r.whaleTop3Rate), pct(r.whaleKingShare),
+    String(r.lowestPelletsPlay), String(r.lowestPelletsStorm), String(r.avgKillsPerRound),
   ]);
   const w = head.map((h, i) => Math.max(h.length, ...rows.map((r) => r[i].length)));
   const line = (cells: string[]) => '| ' + cells.map((c, i) => c.padEnd(w[i])).join(' | ') + ' |';

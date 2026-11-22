@@ -238,9 +238,12 @@ export function radiusForMass(mass: number, c: Config = CONFIG): number {
   return Math.min(b.maxRadius, b.radiusBase + b.radiusLogScale * Math.log(Math.max(0, mass) / b.radiusLogDiv + 1));
 }
 
-/** Target radius scale for crowding, given the summed unscaled ball area. Pure. */
-export function crowdScaleTarget(totalBallArea: number, c: Config = CONFIG): number {
-  const arenaArea = Math.PI * c.arena.radius * c.arena.radius;
+/**
+ * Target radius scale for crowding, given the summed unscaled ball area. Pure.
+ * `zoneRadius` is the playable radius: the full arena, or the safe zone during the storm.
+ */
+export function crowdScaleTarget(totalBallArea: number, c: Config = CONFIG, zoneRadius = c.arena.radius): number {
+  const arenaArea = Math.PI * zoneRadius * zoneRadius;
   const limit = c.crowding.maxAreaFrac * arenaArea;
   if (totalBallArea <= limit) return 1;
   return Math.max(c.crowding.minScale, Math.sqrt(limit / totalBallArea));

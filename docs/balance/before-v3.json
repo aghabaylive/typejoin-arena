@@ -1,0 +1,72 @@
+{
+  "label": "before-v3",
+  "date": "2026-11-22T00:44:35.152Z",
+  "rounds": 20,
+  "seed": 1,
+  "overrides": {},
+  "results": [
+    {
+      "pool": 20,
+      "rounds": 20,
+      "topKills": [
+        23.3,
+        4.5,
+        3.5
+      ],
+      "topKillerShare": 0.538,
+      "medianNonGifterLifeSec": 32.8,
+      "p25NonGifterLifeSec": 11.5,
+      "kingChangesPerRound": 5.9,
+      "lowestPelletsPlay": 8,
+      "lowestPelletsStorm": 5,
+      "lowestPelletsPlayAt": "play 38s left, 20 balls",
+      "whaleTop3Rate": 0.7,
+      "whaleKingShare": 0.718,
+      "medianRoseLifeSec": 25.9,
+      "avgKillsPerRound": 43.3,
+      "avgQueuePeak": 0
+    },
+    {
+      "pool": 50,
+      "rounds": 20,
+      "topKills": [
+        28.8,
+        7.8,
+        6.3
+      ],
+      "topKillerShare": 0.285,
+      "medianNonGifterLifeSec": 41.4,
+      "p25NonGifterLifeSec": 13.3,
+      "kingChangesPerRound": 4.75,
+      "lowestPelletsPlay": 10,
+      "lowestPelletsStorm": 7,
+      "lowestPelletsPlayAt": "play 147s left, 62 balls",
+      "whaleTop3Rate": 0.6,
+      "whaleKingShare": 0.709,
+      "medianRoseLifeSec": 40.4,
+      "avgKillsPerRound": 100.9,
+      "avgQueuePeak": 0
+    },
+    {
+      "pool": 100,
+      "rounds": 20,
+      "topKills": [
+        25.9,
+        13.2,
+        10.3
+      ],
+      "topKillerShare": 0.136,
+      "medianNonGifterLifeSec": 34,
+      "p25NonGifterLifeSec": 14,
+      "kingChangesPerRound": 9.65,
+      "lowestPelletsPlay": 24,
+      "lowestPelletsStorm": 13,
+      "lowestPelletsPlayAt": "play 33s left, 68 balls",
+      "whaleTop3Rate": 0.65,
+      "whaleKingShare": 0.616,
+      "medianRoseLifeSec": 33.2,
+      "avgKillsPerRound": 189.5,
+      "avgQueuePeak": 40
+    }
+  ]
+}

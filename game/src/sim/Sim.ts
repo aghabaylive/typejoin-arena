@@ -735,14 +735,16 @@ export class Sim {
     }
   }
 
-  /** Crowding: shrink every radius uniformly (and smoothly) when balls cover too much of the arena. */
+  /** Crowding: shrink every radius uniformly (and smoothly) when balls cover too much of the arena (or safe zone). */
   updateSizeScale(dt: number): void {
     let area = 0;
     for (const b of this.balls) {
       const r = radiusForMass(b.mass, this.cfg);
       area += Math.PI * r * r;
     }
-    const target = crowdScaleTarget(area, this.cfg);
+    // During the storm the balls crowd into the safe zone, so measure against its current area.
+    const zone = this.stormActive() ? this.safeRadius() : this.cfg.arena.radius;
+    const target = crowdScaleTarget(area, this.cfg, zone);
     const k = 1 - Math.exp(-this.cfg.crowding.smoothPerSec * dt);
     this.sizeScale += (target - this.sizeScale) * k;
     if (Math.abs(target - this.sizeScale) < 1e-4) this.sizeScale = target;

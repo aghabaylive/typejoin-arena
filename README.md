@@ -76,7 +76,7 @@ game/    Vite + PixiJS v8
 - Alive cap: at most 60 real players have balls. Further joins wait in a FIFO queue, shown in the top bar ("Queue: N", then the next 3 names in turn). A freed slot spawns the next in line. A gift from a queued (or not yet joined) viewer moves them to the front and applies when they spawn. Players still queued at the end of a round spawn first in the next one.
 - Storm: Magnet and Black Hole ranges scale with the safe radius (`range * safeRadius / arenaRadius`). Pellets respawn only inside the safe zone, at up to 300/s.
 - Mass decay above 500: 1 %/s.
-- Crowding: when all balls together cover more than 40 % of the arena, every radius shrinks by the same factor (smoothly, never below 0.5x). Rules use mass; only drawn and collision size change.
+- Crowding: when all balls together cover more than 40 % of the arena (during the storm: of the current safe zone), every radius shrinks by the same factor (smoothly, never below 0.5x). Rules use mass; only drawn and collision size change.
 - Pellet target = 150 + 2 per real player in the arena, max 400.
 - Shield and Magnet extend per unit, capped at 60 s. Dash extends per unit, capped at 10 s. Black hole gives 5 s for the first unit and +2 s per extra unit, capped at 10 s.
 - Split pieces share their owner's ability timers. Kills and revenge count only when the owner's last piece dies. Pieces merge on contact after 12 s, and are forced together 3 s after that.
