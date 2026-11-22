@@ -72,7 +72,8 @@ export class Overlays {
   update(sim: Sim, now: number, dt: number): void {
     const left = sim.phaseTimeLeft();
     // Join window countdown
-    const joining = sim.phase === 'join';
+    // While a banner (waiting / reconnecting / LIVE ended / paused) is up, hide the big countdowns behind it.
+    const joining = sim.phase === 'join' && !this.bannerShown;
     this.joinNum.visible = this.joinText.visible = joining;
     if (joining) {
       const n = Math.ceil(left);
@@ -84,7 +85,7 @@ export class Overlays {
       this.lastJoinNum = n;
     }
     // Storm final countdown
-    const final = sim.phase === 'storm' && left <= CONFIG.round.finalCountdownSec;
+    const final = sim.phase === 'storm' && left <= CONFIG.round.finalCountdownSec && !this.bannerShown;
     this.stormNum.visible = final;
     if (final) {
       const n = Math.ceil(left);

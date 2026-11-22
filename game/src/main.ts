@@ -5,6 +5,7 @@ import { Sim } from './sim/Sim';
 import { Renderer } from './render/Renderer';
 import { BridgeClient } from './net/BridgeClient';
 import { DevOverlay } from './devOverlay';
+import { overlayText } from './net/overlay';
 
 const params = new URLSearchParams(location.search);
 const { width, height } = CONFIG.canvas;
@@ -65,14 +66,8 @@ const bridge = new BridgeClient(
 );
 bridge.start();
 
-/** Stream down (reconnecting / ended / not live yet) or host pause: the world and the round timer stop. */
-function sourceOverlay(): string | null {
-  if (bridge.status !== 'open') return null; // bridge itself unreachable: keep running (dev setup)
-  if (bridge.sourceState === 'reconnecting') return 'Reconnecting...';
-  if (bridge.sourceState === 'ended') return 'LIVE ended';
-  if (bridge.sourceState === 'connecting') return 'Reconnecting...';
-  return null;
-}
+/** Stream not live yet / reconnecting / ended, or host pause: banner shown, world and round timer stopped. */
+const currentOverlay = () => overlayText({ bridgeOpen: bridge.status === 'open', sourceState: bridge.sourceState, hostPaused });
 
 // Alive players + delay stats for the host panel, once a second.
 setInterval(() => {
@@ -86,7 +81,7 @@ setInterval(() => {
   }
   bridge.send({
     kind: 'players', players: [...players.values()], queued: sim.joinQueue.length, phase: sim.phase, roundNo: sim.roundNo,
-    paused: hostPaused || sourceOverlay() !== null, legend: renderer.legendMode, delay: { ...delay },
+    paused: currentOverlay() !== null, legend: renderer.legendMode, delay: { ...delay },
   });
   delay.count = delay.sumMs = delay.maxMs = 0;
 }, 1000);
@@ -101,8 +96,8 @@ app.ticker.add((t) => {
   acc += dt;
   let n = 0;
   const t0 = performance.now();
-  const overlay = sourceOverlay();
-  const paused = hostPaused || overlay !== null;
+  const overlay = currentOverlay();
+  const paused = overlay !== null;
   if (paused) acc = 0;
   renderer.setBanner(overlay);
   while (!paused && acc >= step && n < CONFIG.sim.maxStepsPerFrame) {

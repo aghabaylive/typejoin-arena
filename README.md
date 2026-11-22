@@ -32,7 +32,7 @@ SOURCE=tiktok TIKTOK_USERNAME=<account> npm run dev
 ```
 
 - **Connection:** the bridge connects with tiktok-live-connector v2 and reconnects with exponential backoff (2 s doubling up to 60 s).
-- **Game pause:** while the stream is reconnecting, the game pauses and shows "Reconnecting...", and the round timer stops. After the stream ends it shows "LIVE ended", and the bridge checks every 60 s for the account to go live again.
+- **Game pause:** before the stream has ever gone live the game shows "Waiting for LIVE...". While it is reconnecting it shows "Reconnecting...", and a host pause shows "Paused, back soon". In every case the world and the round timer stop. After the stream ends it shows "LIVE ended", and the bridge checks every 60 s for the account to go live again.
 - **Errors:** signing and rate-limit errors from the Euler Stream sign server are logged clearly. Without `SIGN_API_KEY` the free community tier is used.
 - **Event mapping:**
   - chat becomes chat; join words become join through the normalizer.
