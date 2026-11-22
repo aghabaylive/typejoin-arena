@@ -96,3 +96,16 @@ No rule or config changes. The harness gift mix keeps the same coin values (1 / 
 | 100 | 14 % | 34.7 s | 14.8 s | 30.8 s | 7.7 | 50 % | 61 % | 7 | 18 |
 
 Roses granting Dash lets 10 % of viewers hunt for a few seconds. In the 50-viewer scenario the whale now finishes in the top 3 in 50 % of rounds, down from 75 %. That misses the earlier >= 60 % target.
+
+## Round 5: current gift map with Doughnut senders (`v5-rose-doughnut.json`)
+- Rose = Dash.
+- 3 % of viewers now send one Doughnut (30 coins = Shield). They are taken from the non-gifters, so 82 % never gift.
+- No tuning.
+
+| viewers | top killer share | life non-gifter | p25 | life Rose | King chg | whale top 3 | whale King after BH | min pellets play | min pellets storm |
+|---|---|---|---|---|---|---|---|---|---|
+| 20 | 55 % | 31.7 s | 10.7 s | 28.2 s | 4.5 | 80 % | 74 % | 7 | 7 |
+| 50 | 25 % | 45.8 s | 16.8 s | 40.9 s | 7.1 | 70 % | 65 % | 9 | 25 |
+| 100 | 18 % | 32.5 s | 13.8 s | 32.4 s | 7.35 | 55 % | 75 % | 7 | 22 |
+
+50 viewers: every target that was met is still met. The play-phase pellet floor (>= 40) was already missed, because of the Magnet and Black Hole range.

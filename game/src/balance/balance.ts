@@ -29,6 +29,8 @@ const DT = 1 / 60;
 const ROSE_ID = catalogGiftByName('Rose')?.id ?? GIFT_MAP.dash;
 const MIX = {
   rose: { giftId: ROSE_ID, coins: 1 },
+  /** 3 % of viewers send one Doughnut (30 coins) = Shield. */
+  doughnut: { giftId: GIFT_MAP.shield, coins: catalogGiftByName('Doughnut')?.coins ?? 30 },
   mid: { giftId: GIFT_MAP.spikeShot, coins: 100 },
   whale500: { giftId: GIFT_MAP.magnet, coins: 500 },
   whale1000: { giftId: GIFT_MAP.blackHole, coins: 1000 },
@@ -57,7 +59,7 @@ function parseArgs(argv: string[]): Args {
   return a;
 }
 
-type Role = 'none' | 'rose' | 'mid' | 'whale';
+type Role = 'none' | 'rose' | 'doughnut' | 'mid' | 'whale';
 
 interface Scheduled { at: number; fn: () => void }
 
@@ -136,15 +138,17 @@ export function runScenario(pool: number, rounds: number, seed: number, override
     const R = sim.cfg.round;
     const end = t0 + R.joinSec + R.playSec + R.stormSec - 5;
     const shuffled = [...ids].sort(() => rand() - 0.5);
-    const nRose = Math.round(pool * 0.1), nMid = Math.round(pool * 0.04);
+    const nRose = Math.round(pool * 0.1), nMid = Math.round(pool * 0.04), nDough = Math.round(pool * 0.03);
     shuffled.forEach((id, i) => {
-      const role: Role = i === 0 ? 'whale' : i <= nRose ? 'rose' : i <= nRose + nMid ? 'mid' : 'none';
+      const role: Role = i === 0 ? 'whale' : i <= nRose ? 'rose' : i <= nRose + nMid ? 'mid'
+        : i <= nRose + nMid + nDough ? 'doughnut' : 'none';
       roles.set(id, role);
       if (role === 'whale') whaleId = id;
       at(t0 + rand() * (R.joinSec - 2), () => ev({ type: 'join', userId: id }));
       const when = () => t0 + rand() * (end - t0);
       if (role === 'rose') at(when(), () => gift(id, MIX.rose.giftId, MIX.rose.coins, 1 + Math.floor(rand() * 5)));
       if (role === 'mid') at(when(), () => gift(id, MIX.mid.giftId, MIX.mid.coins, 1));
+      if (role === 'doughnut') at(when(), () => gift(id, MIX.doughnut.giftId, MIX.doughnut.coins, 1));
       if (role === 'whale') {
         at(when(), () => gift(id, MIX.whale500.giftId, MIX.whale500.coins, 1));
         at(when(), () => {

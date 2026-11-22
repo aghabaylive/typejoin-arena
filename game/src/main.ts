@@ -41,11 +41,54 @@ const sim = new Sim({ seed: Number(params.get('seed') ?? Date.now() % 1e9) });
 const renderer = new Renderer(app);
 const dev = new DevOverlay();
 
-const bridge = new BridgeClient(params.get('bridge') ?? CONFIG.net.bridgeUrl, (e) => {
-  sim.handleEvent(e);
-  dev.log(e);
-});
+/** Bridge receive -> handled by the sim (ms), reported to the host panel. */
+const delay = { count: 0, sumMs: 0, maxMs: 0 };
+let hostPaused = false;
+
+const bridge = new BridgeClient(
+  params.get('bridge') ?? CONFIG.net.bridgeUrl,
+  (e) => {
+    const d = Math.max(0, Date.now() - e.ts);
+    delay.count++;
+    delay.sumMs += d;
+    delay.maxMs = Math.max(delay.maxMs, d);
+    sim.handleEvent(e);
+    dev.log(e);
+  },
+  (a) => {
+    if (a.action === 'pause') hostPaused = true;
+    else if (a.action === 'resume') hostPaused = false;
+    else if (a.action === 'restartRound') sim.restartRound();
+    else if (a.action === 'remove') sim.removePlayer(a.userId);
+  },
+);
 bridge.start();
+
+/** Stream down (reconnecting / ended / not live yet) or host pause: the world and the round timer stop. */
+function sourceOverlay(): string | null {
+  if (bridge.status !== 'open') return null; // bridge itself unreachable: keep running (dev setup)
+  if (bridge.sourceState === 'reconnecting') return 'Reconnecting...';
+  if (bridge.sourceState === 'ended') return 'LIVE ended';
+  if (bridge.sourceState === 'connecting') return 'Reconnecting...';
+  return null;
+}
+
+// Alive players + delay stats for the host panel, once a second.
+setInterval(() => {
+  const players = new Map<string, { userId: string; nickname: string; avatarUrl?: string; mass: number }>();
+  for (const b of sim.balls) {
+    if (b.isBot) continue;
+    const p = sim.players.get(b.ownerId);
+    const cur = players.get(b.ownerId) ?? { userId: b.ownerId, nickname: p?.nickname ?? b.ownerId, avatarUrl: p?.avatarUrl, mass: 0 };
+    cur.mass += b.mass;
+    players.set(b.ownerId, cur);
+  }
+  bridge.send({
+    kind: 'players', players: [...players.values()], queued: sim.joinQueue.length, phase: sim.phase, roundNo: sim.roundNo,
+    paused: hostPaused || sourceOverlay() !== null, delay: { ...delay },
+  });
+  delay.count = delay.sumMs = delay.maxMs = 0;
+}, 1000);
 
 // Fixed-timestep simulation (60 Hz) decoupled from rendering; render interpolates.
 const step = 1 / CONFIG.sim.hz;
@@ -57,7 +100,11 @@ app.ticker.add((t) => {
   acc += dt;
   let n = 0;
   const t0 = performance.now();
-  while (acc >= step && n < CONFIG.sim.maxStepsPerFrame) {
+  const overlay = sourceOverlay();
+  const paused = hostPaused || overlay !== null;
+  if (paused) acc = 0;
+  renderer.setBanner(overlay);
+  while (!paused && acc >= step && n < CONFIG.sim.maxStepsPerFrame) {
     sim.step(step);
     acc -= step;
     n++;
@@ -78,7 +125,8 @@ app.ticker.add((t) => {
     pellets: `${sim.pellets.length} (target ${sim.pelletTarget()})`,
     'size scale': sim.sizeScale.toFixed(2),
     particles: renderer.particleCount,
-    bridge: `${bridge.status} (${bridge.source})`,
+    bridge: `${bridge.status} (${bridge.source}: ${bridge.sourceState}${bridge.sourceDetail ? `, ${bridge.sourceDetail}` : ''})`,
+    paused: hostPaused ? 'host' : overlay ?? 'no',
   });
 });
 

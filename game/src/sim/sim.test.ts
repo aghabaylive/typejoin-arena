@@ -598,6 +598,33 @@ describe('alive cap + queue', () => {
   });
 });
 
+describe('host controls', () => {
+  it('removePlayer drops the balls (no kill credit), the queue entry and queued gifts', () => {
+    const sim = quietSim({ queue: { maxAlive: 1 } });
+    sim.handleEvent(ev({ type: 'join', userId: 'a', nickname: 'a' }));
+    sim.handleEvent(ev({ type: 'join', userId: 'b', nickname: 'b' }));
+    sim.handleEvent(ev({ type: 'gift', userId: 'b', nickname: 'b', giftId: GIFT_MAP.shield, giftName: 'g', coinsPerUnit: 30, units: 1 } as never));
+    expect(sim.joinQueue).toEqual(['b']);
+    expect(sim.removePlayer('a')).toBe(true);
+    expect(sim.ballsOf('a')).toHaveLength(0);
+    expect(sim.drainEvents().some((e) => e.type === 'eaten')).toBe(false);
+    expect(sim.removePlayer('b')).toBe(true);
+    expect(sim.joinQueue).toEqual([]);
+    sim.step(DT);
+    expect(sim.balls.filter((x) => !x.isBot)).toHaveLength(0); // b's queued gift did not spawn them
+  });
+
+  it('restartRound starts a fresh join window', () => {
+    const sim = quietSim();
+    sim.handleEvent(ev({ type: 'join' }));
+    const round = sim.roundNo;
+    sim.restartRound();
+    expect(sim.roundNo).toBe(round + 1);
+    expect(sim.phase).toBe('join');
+    expect(sim.ballsOf('u1')).toHaveLength(0);
+  });
+});
+
 describe('storm field range', () => {
   it('magnet and black hole ranges scale with the safe radius', () => {
     const sim = quietSim();

@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>typejoin-arena · live event feed</title>
+<style>
+  :root { color-scheme: dark; --bg:#0d1326; --card:#151d38; --line:#26305a; --fg:#e8ecff; --dim:#8a93b8; --acc:#5b8cff; }
+  * { box-sizing: border-box; }
+  body { margin:0; font: 14px/1.4 system-ui, sans-serif; background: var(--bg); color: var(--fg); }
+  header { padding: 12px 16px; border-bottom: 1px solid var(--line); display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+  header h1 { font-size: 16px; margin:0; }
+  .pill { padding: 2px 8px; border-radius: 99px; background: var(--card); border:1px solid var(--line); color: var(--dim); }
+  .pill.ok { color: #7dffa8; } .pill.bad { color: #ff7d7d; }
+  main { display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; padding: 12px 16px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin: 0 0 10px; }
+  .row { display:flex; gap:8px; align-items:center; margin-bottom: 8px; flex-wrap: wrap; }
+  button { background: var(--acc); color: white; border: 0; border-radius: 6px; padding: 7px 12px; font-weight: 600; cursor: pointer; }
+  button.alt { background: #2a3566; } button:active { transform: translateY(1px); }
+  input[type=number], select, input[type=text] { background:#0b1022; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:6px 8px; }
+  input[type=number] { width: 80px; }
+  input[type=range] { flex: 1; min-width: 140px; }
+  label.slider { display:grid; grid-template-columns: 120px 1fr 60px; gap: 8px; align-items:center; margin-bottom: 8px; }
+  .gifts { display:grid; grid-template-columns: repeat(auto-fill, minmax(150px,1fr)); gap: 6px; }
+  .gifts.all { max-height: 340px; overflow-y: auto; padding-right: 4px; }
+  .gifts button { text-align:left; background:#2a3566; display:flex; gap:8px; align-items:center; }
+  .gifts button.ability { outline: 2px solid #ffc83d; }
+  .gifts img { width: 36px; height: 36px; object-fit: contain; flex: none; }
+  .gifts .ph { width: 36px; height: 36px; border-radius: 8px; background:#3a4680; flex:none; display:grid; place-items:center; }
+  .gifts small { display:block; color: var(--dim); font-weight: 400; }
+  .gifts b.ab { color: #ffc83d; }
+  #log { font: 12px ui-monospace, monospace; max-height: 340px; overflow:auto; white-space: pre; color: var(--dim); }
+  .hint { color: var(--dim); font-size: 12px; }
+</style>
+<style> #feed { font: 13px ui-monospace, monospace; max-height: 75vh; overflow:auto; } .ev { padding: 2px 0; border-bottom: 1px solid var(--line); } .t { color: var(--dim); } .k { color: #ffc83d; } </style>
+</head>
+<body>
+<header>
+  <h1>typejoin-arena · live feed (read-only)</h1>
+  <span id="src" class="pill">source: ?</span>
+  <span id="state" class="pill">state: ?</span>
+  <span id="counts" class="pill">events: 0</span>
+  <a class="pill" href="/host">host panel</a>
+</header>
+<main>
+  <section style="grid-column: 1 / -1">
+    <h2>Real viewer events</h2>
+    <p class="hint">Real TikTok mode: fake viewers, likes and gifts cannot be injected. Moderation is in the host panel.</p>
+    <div id="feed"></div>
+  </section>
+</main>
+<script>
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+  async function refresh() {
+    let s;
+    try { s = await (await fetch('/dev/state')).json(); } catch { return; }
+    document.getElementById('src').textContent = 'source: ' + s.source;
+    const st = document.getElementById('state'); st.textContent = 'state: ' + s.state; st.className = 'pill ' + (s.state === 'live' ? 'ok' : 'bad');
+    document.getElementById('counts').textContent = 'events: ' + s.totalEvents + ' ' + JSON.stringify(s.counts);
+    const feed = document.getElementById('feed');
+    feed.replaceChildren(...s.recent.map((e) => {
+      const extra = e.type === 'gift' ? ' ' + e.giftName + ' x' + e.units + ' (' + e.coinsPerUnit + 'c)' : e.type === 'like' ? ' x' + e.count : e.type === 'chat' ? ' "' + e.text + '"' : '';
+      const d = el('div', 'ev');
+      d.append(el('span', 't', new Date(e.ts).toLocaleTimeString() + ' '), el('span', 'k', e.type.padEnd(6) + ' '), el('span', '', e.nickname + extra));
+      return d;
+    }));
+  }
+  refresh(); setInterval(refresh, 1000);
+</script>
+</body>
+</html>

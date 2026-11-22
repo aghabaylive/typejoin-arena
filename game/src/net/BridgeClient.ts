@@ -1,4 +1,4 @@
-import { isGameEvent, type BridgeMessage, type GameEvent } from '@typejoin/shared';
+import { isGameEvent, type BridgeMessage, type GameEvent, type GameToBridgeMessage, type HostAction, type SourceState } from '@typejoin/shared';
 
 export type BridgeStatus = 'connecting' | 'open' | 'closed';
 
@@ -10,7 +10,20 @@ export class BridgeClient {
   private retry = 0;
   private stopped = false;
 
-  constructor(private url: string, private onEvent: (e: GameEvent) => void) {}
+  /** Live source state from the bridge ('live' for FakeSource). */
+  sourceState: SourceState = 'connecting';
+  sourceDetail = '';
+
+  constructor(
+    private url: string,
+    private onEvent: (e: GameEvent) => void,
+    private onHost: (a: HostAction) => void = () => {},
+  ) {}
+
+  /** Game -> bridge (host panel snapshot). Dropped while disconnected. */
+  send(m: GameToBridgeMessage): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(m));
+  }
 
   start(): void {
     this.stopped = false;
@@ -44,6 +57,13 @@ export class BridgeClient {
       }
       if (msg.kind === 'hello') this.source = msg.source;
       else if (msg.kind === 'event' && isGameEvent(msg.event)) this.onEvent(msg.event);
+      else if (msg.kind === 'status') {
+        this.sourceState = msg.state;
+        this.sourceDetail = msg.detail ?? '';
+      } else if (msg.kind === 'host') {
+        const { kind: _k, ...action } = msg;
+        this.onHost(action as HostAction);
+      }
     };
     ws.onclose = () => {
       this.status = 'closed';

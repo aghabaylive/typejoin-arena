@@ -19,6 +19,9 @@ export class Overlays {
   private results: Container | null = null;
   private lastJoinNum = -1;
   private lastStormNum = -1;
+  private banner: Container;
+  private bannerText: Text;
+  private bannerShown: string | null = null;
 
   constructor(private tex: Textures, private avatars: AvatarCache) {
     const { cx, cy } = CONFIG.arena;
@@ -33,6 +36,28 @@ export class Overlays {
     this.announceSub = label('', 64, 0xd2a8ff);
     this.announceSub.position.set(cx, cy + 70);
     this.root.addChild(this.joinNum, this.joinText, this.stormNum, this.announce, this.announceSub);
+    // Connection banner over the arena (on top of everything, incl. results).
+    this.banner = new Container();
+    this.banner.visible = false;
+    const R = CONFIG.render;
+    this.banner.addChild(new Graphics().rect(0, R.hudBottom, CONFIG.canvas.width, R.arenaBottom - R.hudBottom).fill({ color: 0x02040c, alpha: 0.72 }));
+    this.bannerText = label('', 96, 0xffffff);
+    this.bannerText.position.set(cx, cy);
+    this.banner.addChild(this.bannerText);
+  }
+
+  setBanner(text: string | null, now: number): void {
+    if (text !== this.bannerShown) {
+      this.bannerShown = text;
+      if (text) {
+        this.bannerText.text = text;
+        this.bannerText.style.fill = text === 'LIVE ended' ? 0xff5b5b : 0xffe066;
+      }
+      this.banner.visible = !!text;
+      if (text) this.root.addChild(this.banner); // keep on top
+    }
+    if (text && text !== 'LIVE ended') this.bannerText.alpha = 0.7 + 0.3 * Math.sin(now * 4);
+    else this.bannerText.alpha = 1;
   }
 
   /** Huge sender-name announcement (black hole). */

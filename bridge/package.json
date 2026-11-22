@@ -8,10 +8,12 @@
     "start": "tsx src/index.ts",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json",
-    "gifts:fetch": "tsx src/tools/fetchGifts.ts"
+    "gifts:fetch": "tsx src/tools/fetchGifts.ts",
+    "tiktok:record": "tsx src/tools/recordSamples.ts"
   },
   "dependencies": {
     "@typejoin/shared": "*",
+    "sharp": "^0.35.5",
     "tiktok-live-connector": "^2.5.0",
     "ws": "^8.18.0"
   },

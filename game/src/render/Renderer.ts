@@ -90,6 +90,11 @@ export class Renderer {
     this.toasts.update(dt);
   }
 
+  /** Full-screen banner for "Reconnecting..." / "LIVE ended" (null hides it). */
+  setBanner(text: string | null): void {
+    this.overlays.setBanner(text, this.now);
+  }
+
   get particleCount(): number {
     return this.particles.count;
   }

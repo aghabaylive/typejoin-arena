@@ -1,0 +1,497 @@
+{
+  "_note": "SYNTHETIC fixtures (no live room was available when this was written). Field names follow tiktok-live-proto v3 as decoded by tiktok-live-connector 2.5.0. Replace with a real recording via `npm run tiktok:record -w bridge -- <username>` (anonymized).",
+  "chat": [
+    {
+      "common": {
+        "method": "WebcastChatMessage",
+        "msgId": "7700000000000000101",
+        "roomId": "7710000000000000000",
+        "createTime": "1763770800000"
+      },
+      "user": {
+        "userId": "7300000000000000001",
+        "uniqueId": "viewer_one",
+        "nickname": "Viewer One",
+        "profilePicture": {
+          "url": [
+            "https://p16-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a1~c5_100x100.webp",
+            "https://p77-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a1~c5_100x100.jpeg"
+          ],
+          "uri": "a1"
+        }
+      },
+      "comment": "join"
+    },
+    {
+      "common": {
+        "method": "WebcastChatMessage",
+        "msgId": "7700000000000000102",
+        "roomId": "7710000000000000000",
+        "createTime": "1763770800000"
+      },
+      "user": {
+        "userId": "7300000000000000002",
+        "uniqueId": "viewer_two",
+        "nickname": "Viewer Two",
+        "profilePicture": {
+          "url": [
+            "https://p16-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a2~c5_100x100.webp",
+            "https://p77-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a2~c5_100x100.jpeg"
+          ],
+          "uri": "a2"
+        }
+      },
+      "comment": "go go go!"
+    },
+    {
+      "common": {
+        "method": "WebcastGiftMessage",
+        "msgId": "7700000000000000103",
+        "roomId": "7710000000000000000",
+        "createTime": "1763770801"
+      },
+      "user": {
+        "id": "7300000000000000003",
+        "displayId": "viewer_three",
+        "nickname": "",
+        "profilePicture": {
+          "mUrls": [
+            "https://p16-sign-va.tiktokcdn.com/a3~c5_100x100.jpeg"
+          ]
+        }
+      },
+      "comment": "J"
+    }
+  ],
+  "like": [
+    {
+      "common": {
+        "method": "WebcastLikeMessage",
+        "msgId": "7700000000000000201",
+        "roomId": "7710000000000000000",
+        "createTime": "1763770800000"
+      },
+      "user": {
+        "userId": "7300000000000000001",
+        "uniqueId": "viewer_one",
+        "nickname": "Viewer One",
+        "profilePicture": {
+          "url": [
+            "https://p16-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a1~c5_100x100.webp",
+            "https://p77-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a1~c5_100x100.jpeg"
+          ],
+          "uri": "a1"
+        }
+      },
+      "likeCount": 15,
+      "totalLikeCount": 1200
+    },
+    {
+      "common": {
+        "method": "WebcastLikeMessage",
+        "msgId": "7700000000000000202",
+        "roomId": "7710000000000000000",
+        "createTime": "1763770800000"
+      },
+      "user": {
+        "userId": "7300000000000000002",
+        "uniqueId": "viewer_two",
+        "nickname": "Viewer Two",
+        "profilePicture": {
+          "url": [
+            "https://p16-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a2~c5_100x100.webp",
+            "https://p77-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a2~c5_100x100.jpeg"
+          ],
+          "uri": "a2"
+        }
+      },
+      "likeCount": 0,
+      "totalLikeCount": 1200
+    }
+  ],
+  "giftStreak": [
+    {
+      "common": {
+        "method": "WebcastGiftMessage",
+        "msgId": "7700000000000000301",
+        "roomId": "7710000000000000000",
+        "createTime": "1763770800000"
+      },
+      "user": {
+        "userId": "7300000000000000001",
+        "uniqueId": "viewer_one",
+        "nickname": "Viewer One",
+        "profilePicture": {
+          "url": [
+            "https://p16-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a1~c5_100x100.webp",
+            "https://p77-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a1~c5_100x100.jpeg"
+          ],
+          "uri": "a1"
+        }
+      },
+      "giftId": 5655,
+      "repeatCount": 1,
+      "repeatEnd": 0,
+      "groupId": "1763770800123",
+      "giftDetails": {
+        "giftType": 1,
+        "giftName": "Rose",
+        "diamondCount": 1,
+        "id": "5655"
+      }
+    },
+    {
+      "common": {
+        "method": "WebcastGiftMessage",
+        "msgId": "7700000000000000302",
+        "roomId": "7710000000000000000",
+        "createTime": "1763770800000"
+      },
+      "user": {
+        "userId": "7300000000000000001",
+        "uniqueId": "viewer_one",
+        "nickname": "Viewer One",
+        "profilePicture": {
+          "url": [
+            "https://p16-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a1~c5_100x100.webp",
+            "https://p77-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a1~c5_100x100.jpeg"
+          ],
+          "uri": "a1"
+        }
+      },
+      "giftId": 5655,
+      "repeatCount": 3,
+      "repeatEnd": 0,
+      "groupId": "1763770800123",
+      "giftDetails": {
+        "giftType": 1,
+        "giftName": "Rose",
+        "diamondCount": 1,
+        "id": "5655"
+      }
+    },
+    {
+      "common": {
+        "method": "WebcastGiftMessage",
+        "msgId": "7700000000000000303",
+        "roomId": "7710000000000000000",
+        "createTime": "1763770800000"
+      },
+      "user": {
+        "userId": "7300000000000000001",
+        "uniqueId": "viewer_one",
+        "nickname": "Viewer One",
+        "profilePicture": {
+          "url": [
+            "https://p16-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a1~c5_100x100.webp",
+            "https://p77-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a1~c5_100x100.jpeg"
+          ],
+          "uri": "a1"
+        }
+      },
+      "giftId": 5655,
+      "repeatCount": 2,
+      "repeatEnd": 0,
+      "groupId": "1763770800123",
+      "giftDetails": {
+        "giftType": 1,
+        "giftName": "Rose",
+        "diamondCount": 1,
+        "id": "5655"
+      }
+    },
+    {
+      "common": {
+        "method": "WebcastGiftMessage",
+        "msgId": "7700000000000000304",
+        "roomId": "7710000000000000000",
+        "createTime": "1763770800000"
+      },
+      "user": {
+        "userId": "7300000000000000001",
+        "uniqueId": "viewer_one",
+        "nickname": "Viewer One",
+        "profilePicture": {
+          "url": [
+            "https://p16-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a1~c5_100x100.webp",
+            "https://p77-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a1~c5_100x100.jpeg"
+          ],
+          "uri": "a1"
+        }
+      },
+      "giftId": 5655,
+      "repeatCount": 5,
+      "repeatEnd": 0,
+      "groupId": "1763770800123",
+      "giftDetails": {
+        "giftType": 1,
+        "giftName": "Rose",
+        "diamondCount": 1,
+        "id": "5655"
+      }
+    },
+    {
+      "common": {
+        "method": "WebcastGiftMessage",
+        "msgId": "7700000000000000305",
+        "roomId": "7710000000000000000",
+        "createTime": "1763770800000"
+      },
+      "user": {
+        "userId": "7300000000000000001",
+        "uniqueId": "viewer_one",
+        "nickname": "Viewer One",
+        "profilePicture": {
+          "url": [
+            "https://p16-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a1~c5_100x100.webp",
+            "https://p77-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a1~c5_100x100.jpeg"
+          ],
+          "uri": "a1"
+        }
+      },
+      "giftId": 5655,
+      "repeatCount": 5,
+      "repeatEnd": 1,
+      "groupId": "1763770800123",
+      "giftDetails": {
+        "giftType": 1,
+        "giftName": "Rose",
+        "diamondCount": 1,
+        "id": "5655"
+      }
+    },
+    {
+      "common": {
+        "method": "WebcastGiftMessage",
+        "msgId": "7700000000000000305",
+        "roomId": "7710000000000000000",
+        "createTime": "1763770800000"
+      },
+      "user": {
+        "userId": "7300000000000000001",
+        "uniqueId": "viewer_one",
+        "nickname": "Viewer One",
+        "profilePicture": {
+          "url": [
+            "https://p16-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a1~c5_100x100.webp",
+            "https://p77-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a1~c5_100x100.jpeg"
+          ],
+          "uri": "a1"
+        }
+      },
+      "giftId": 5655,
+      "repeatCount": 5,
+      "repeatEnd": 1,
+      "groupId": "1763770800123",
+      "giftDetails": {
+        "giftType": 1,
+        "giftName": "Rose",
+        "diamondCount": 1,
+        "id": "5655"
+      }
+    }
+  ],
+  "giftSecondStreakSameUser": [
+    {
+      "common": {
+        "method": "WebcastGiftMessage",
+        "msgId": "7700000000000000311",
+        "roomId": "7710000000000000000",
+        "createTime": "1763770800000"
+      },
+      "user": {
+        "userId": "7300000000000000001",
+        "uniqueId": "viewer_one",
+        "nickname": "Viewer One",
+        "profilePicture": {
+          "url": [
+            "https://p16-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a1~c5_100x100.webp",
+            "https://p77-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a1~c5_100x100.jpeg"
+          ],
+          "uri": "a1"
+        }
+      },
+      "giftId": 5655,
+      "repeatCount": 2,
+      "repeatEnd": 1,
+      "groupId": "1763770809999",
+      "giftDetails": {
+        "giftType": 1,
+        "giftName": "Rose",
+        "diamondCount": 1,
+        "id": "5655"
+      }
+    }
+  ],
+  "giftSingle": [
+    {
+      "common": {
+        "method": "WebcastGiftMessage",
+        "msgId": "7700000000000000401",
+        "roomId": "7710000000000000000",
+        "createTime": "1763770800000"
+      },
+      "user": {
+        "userId": "7300000000000000002",
+        "uniqueId": "viewer_two",
+        "nickname": "Viewer Two",
+        "profilePicture": {
+          "url": [
+            "https://p16-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a2~c5_100x100.webp",
+            "https://p77-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a2~c5_100x100.jpeg"
+          ],
+          "uri": "a2"
+        }
+      },
+      "giftId": 11046,
+      "repeatCount": 1,
+      "repeatEnd": 0,
+      "groupId": "0",
+      "giftDetails": {
+        "giftType": 2,
+        "giftName": "Galaxy",
+        "diamondCount": 1000,
+        "id": "11046"
+      }
+    },
+    {
+      "common": {
+        "method": "WebcastGiftMessage",
+        "msgId": "7700000000000000401",
+        "roomId": "7710000000000000000",
+        "createTime": "1763770800000"
+      },
+      "user": {
+        "userId": "7300000000000000002",
+        "uniqueId": "viewer_two",
+        "nickname": "Viewer Two",
+        "profilePicture": {
+          "url": [
+            "https://p16-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a2~c5_100x100.webp",
+            "https://p77-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a2~c5_100x100.jpeg"
+          ],
+          "uri": "a2"
+        }
+      },
+      "giftId": 11046,
+      "repeatCount": 1,
+      "repeatEnd": 0,
+      "groupId": "0",
+      "giftDetails": {
+        "giftType": 2,
+        "giftName": "Galaxy",
+        "diamondCount": 1000,
+        "id": "11046"
+      }
+    }
+  ],
+  "giftUnknown": [
+    {
+      "common": {
+        "method": "WebcastGiftMessage",
+        "msgId": "7700000000000000501",
+        "roomId": "7710000000000000000",
+        "createTime": "1763770800000"
+      },
+      "user": {
+        "userId": "7300000000000000002",
+        "uniqueId": "viewer_two",
+        "nickname": "Viewer Two",
+        "profilePicture": {
+          "url": [
+            "https://p16-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a2~c5_100x100.webp",
+            "https://p77-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a2~c5_100x100.jpeg"
+          ],
+          "uri": "a2"
+        }
+      },
+      "giftId": 99999999,
+      "repeatCount": 2,
+      "repeatEnd": 0,
+      "groupId": "0",
+      "giftDetails": {
+        "giftType": 2,
+        "giftName": "Mystery",
+        "diamondCount": 7
+      }
+    }
+  ],
+  "follow": [
+    {
+      "common": {
+        "method": "WebcastSocialMessage",
+        "msgId": "7700000000000000601",
+        "roomId": "7710000000000000000",
+        "createTime": "1763770800000"
+      },
+      "user": {
+        "userId": "7300000000000000002",
+        "uniqueId": "viewer_two",
+        "nickname": "Viewer Two",
+        "profilePicture": {
+          "url": [
+            "https://p16-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a2~c5_100x100.webp",
+            "https://p77-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a2~c5_100x100.jpeg"
+          ],
+          "uri": "a2"
+        }
+      },
+      "action": "1",
+      "followCount": 10
+    }
+  ],
+  "share": [
+    {
+      "common": {
+        "method": "WebcastSocialMessage",
+        "msgId": "7700000000000000701",
+        "roomId": "7710000000000000000",
+        "createTime": "1763770800000"
+      },
+      "user": {
+        "id": "7300000000000000003",
+        "displayId": "viewer_three",
+        "nickname": "",
+        "profilePicture": {
+          "mUrls": [
+            "https://p16-sign-va.tiktokcdn.com/a3~c5_100x100.jpeg"
+          ]
+        }
+      },
+      "action": "3",
+      "shareType": "1"
+    }
+  ],
+  "malformed": [
+    {
+      "common": {
+        "method": "WebcastGiftMessage",
+        "msgId": "7700000000000000801",
+        "roomId": "7710000000000000000",
+        "createTime": "1763770800000"
+      }
+    },
+    {
+      "user": {
+        "userId": "0",
+        "nickname": "nobody"
+      },
+      "comment": "join"
+    },
+    {
+      "user": {
+        "userId": "7300000000000000001",
+        "uniqueId": "viewer_one",
+        "nickname": "Viewer One",
+        "profilePicture": {
+          "url": [
+            "https://p16-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a1~c5_100x100.webp",
+            "https://p77-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a1~c5_100x100.jpeg"
+          ],
+          "uri": "a1"
+        }
+      },
+      "comment": ""
+    }
+  ]
+}

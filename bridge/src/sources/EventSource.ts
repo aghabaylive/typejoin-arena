@@ -1,3 +1,5 @@
+import type { SourceState } from '@typejoin/shared';
+
 /**
  * Raw events as produced by an event source, BEFORE normalization.
  * The shape intentionally mirrors what a TikTok LIVE connector delivers
@@ -7,6 +9,8 @@ export interface RawUser {
   userId: string;
   nickname: string;
   avatarUrl?: string;
+  /** When the platform created the event (TikTok createTime, ms). Used only for delay stats. */
+  sourceTs?: number;
 }
 
 export type RawSourceEvent =
@@ -32,6 +36,8 @@ export type RawSourceEvent =
 
 export type RawSink = (e: RawSourceEvent) => void;
 
+export type SourceStatusListener = (state: SourceState, detail?: string) => void;
+
 /**
  * Anything that produces live-stream events. Implementations:
  *  - FakeSource (now): driven by the /dev panel and background timers.
@@ -39,6 +45,10 @@ export type RawSink = (e: RawSourceEvent) => void;
  */
 export interface EventSource {
   readonly name: string;
+  /** Current connection state (FakeSource: always 'live'). */
+  readonly state: SourceState;
+  /** Called on every state change (connecting / live / reconnecting / ended). */
+  onStatus(listener: SourceStatusListener): void;
   start(sink: RawSink): Promise<void>;
   stop(): Promise<void>;
 }

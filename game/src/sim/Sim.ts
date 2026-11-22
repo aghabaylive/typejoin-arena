@@ -504,6 +504,37 @@ export class Sim {
     return b;
   }
 
+  // ======================= host controls =======================
+
+  /** Host "Remove and ban": the player's balls vanish (no kill credit), queue entry and pending gifts are dropped. */
+  removePlayer(userId: string): boolean {
+    const p = this.players.get(userId);
+    const balls = this.ballsOf(userId);
+    for (const b of balls) {
+      this.emit({ type: 'botLeft', ballId: b.id, x: b.x, y: b.y });
+      this.removeBall(b);
+    }
+    this.joinQueue = this.joinQueue.filter((id) => id !== userId);
+    this.carryQueue = this.carryQueue.filter((id) => id !== userId);
+    this.pendingShots = this.pendingShots.filter((s) => s.senderId !== userId);
+    if (this.kingOwner === userId) this.kingOwner = null;
+    this.players.delete(userId);
+    return !!p || balls.length > 0;
+  }
+
+  /** Host "Restart round": a fresh join window (everyone types join again; queued gifts carry as usual). */
+  restartRound(): void {
+    for (const p of this.players.values()) {
+      if (p.pendingGifts.length) {
+        p.carryGifts.push(...p.pendingGifts);
+        p.pendingGifts = [];
+      }
+    }
+    this.carryQueue = [...this.joinQueue];
+    this.joinQueue = [];
+    this.startRound();
+  }
+
   /** Test/debug helper: jump to a phase (runs its enter logic). */
   debugSetPhase(phase: Phase): void {
     this.enterPhase(phase);

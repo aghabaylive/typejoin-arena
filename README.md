@@ -24,6 +24,37 @@ For OBS, add a Browser Source at 1080x1920 pointing at the game URL.
 4. During play, fire a Black Hole and a few Spike Shots by hand.
 5. Each new round needs fresh joins. The background join rate covers this, or click **All fake viewers type join again**.
 
+## Real TikTok LIVE
+
+```bash
+SOURCE=tiktok TIKTOK_USERNAME=<account> npm run dev
+# optional: SIGN_API_KEY=<Euler Stream key> (environment only, never commit it)
+```
+
+- **Connection:** the bridge connects with tiktok-live-connector v2 and reconnects with exponential backoff (2 s doubling up to 60 s).
+- **Game pause:** while the stream is reconnecting, the game pauses and shows "Reconnecting...", and the round timer stops. After the stream ends it shows "LIVE ended", and the bridge checks every 60 s for the account to go live again.
+- **Errors:** signing and rate-limit errors from the Euler Stream sign server are logged clearly. Without `SIGN_API_KEY` the free community tier is used.
+- **Event mapping:**
+  - chat becomes chat; join words become join through the normalizer.
+  - like becomes like with the per-message delta.
+  - gift becomes gift with only the new units of a streak; the coin price comes from the catalog.
+  - follow and share pass through.
+  - The TikTok numeric user id is the stable `userId`. Profile pictures are loaded through the bridge's `/avatar` proxy.
+- **Dev panel:** in TikTok mode, http://localhost:8787/dev is a read-only live event feed. Fake viewers, likes and gifts cannot be injected (`/dev/cmd` returns 403). In-game bots are unchanged.
+- **Recording fixtures:** `npm run tiktok:record -w bridge -- <account> [seconds]` saves anonymized sample payloads to `bridge/test/fixtures/`.
+
+### Host panel: http://localhost:8787/host (local machine only)
+- Alive players with picture and name, and a **Remove and ban** button. Bans are stored in `data/bans.json`, and banned users' events are dropped by the bridge, so they can never rejoin. Banned users are listed with an Unban button.
+- Pause, resume and restart round.
+- Stats: event counts, delays, avatar cache and source errors.
+- **Name filter:** put words in `data/name-filter.json` as `{ "words": ["..."] }`, or in the `NAME_FILTER` env var (comma separated). A nickname containing any of them is shown as "player". Matching ignores case, accents, separators and common digit swaps (0 for o, 1 for i, 3 for e, and so on).
+
+### Avatar proxy: `GET /avatar?url=...`
+Only https URLs on TikTok CDN hostnames are fetched (allowlist; redirects are re-checked). Images are resized to 128 px and kept in a memory LRU of 500. Any failure returns 404, and the game shows initials.
+
+### Event log
+Every normalized event is appended to `logs/events-YYYY-MM-DD.jsonl` (gitignored). Events from banned users are logged with `"dropped": "banned"`.
+
 ## Gift catalog
 
 ```bash

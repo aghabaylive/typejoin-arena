@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>typejoin-arena · host panel</title>
+<style>
+  :root { color-scheme: dark; --bg:#0d1326; --card:#151d38; --line:#26305a; --fg:#e8ecff; --dim:#8a93b8; --acc:#5b8cff; }
+  * { box-sizing: border-box; }
+  body { margin:0; font: 14px/1.4 system-ui, sans-serif; background: var(--bg); color: var(--fg); }
+  header { padding: 12px 16px; border-bottom: 1px solid var(--line); display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+  header h1 { font-size: 16px; margin:0; }
+  .pill { padding: 2px 8px; border-radius: 99px; background: var(--card); border:1px solid var(--line); color: var(--dim); }
+  .pill.ok { color: #7dffa8; } .pill.bad { color: #ff7d7d; }
+  main { display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; padding: 12px 16px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin: 0 0 10px; }
+  .row { display:flex; gap:8px; align-items:center; margin-bottom: 8px; flex-wrap: wrap; }
+  button { background: var(--acc); color: white; border: 0; border-radius: 6px; padding: 7px 12px; font-weight: 600; cursor: pointer; }
+  button.alt { background: #2a3566; } button:active { transform: translateY(1px); }
+  input[type=number], select, input[type=text] { background:#0b1022; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:6px 8px; }
+  input[type=number] { width: 80px; }
+  input[type=range] { flex: 1; min-width: 140px; }
+  label.slider { display:grid; grid-template-columns: 120px 1fr 60px; gap: 8px; align-items:center; margin-bottom: 8px; }
+  .gifts { display:grid; grid-template-columns: repeat(auto-fill, minmax(150px,1fr)); gap: 6px; }
+  .gifts.all { max-height: 340px; overflow-y: auto; padding-right: 4px; }
+  .gifts button { text-align:left; background:#2a3566; display:flex; gap:8px; align-items:center; }
+  .gifts button.ability { outline: 2px solid #ffc83d; }
+  .gifts img { width: 36px; height: 36px; object-fit: contain; flex: none; }
+  .gifts .ph { width: 36px; height: 36px; border-radius: 8px; background:#3a4680; flex:none; display:grid; place-items:center; }
+  .gifts small { display:block; color: var(--dim); font-weight: 400; }
+  .gifts b.ab { color: #ffc83d; }
+  #log { font: 12px ui-monospace, monospace; max-height: 340px; overflow:auto; white-space: pre; color: var(--dim); }
+  .hint { color: var(--dim); font-size: 12px; }
+</style>
+<style>
+  .players { display:grid; grid-template-columns: repeat(auto-fill, minmax(260px,1fr)); gap: 6px; max-height: 60vh; overflow:auto; }
+  .player { display:flex; gap:10px; align-items:center; background:#1c2547; border-radius:8px; padding:6px 8px; }
+  .player img, .player .ini { width:40px; height:40px; border-radius:50%; flex:none; object-fit:cover; background:#3a4680; display:grid; place-items:center; font-weight:700; }
+  .player .who { flex:1; min-width:0; }
+  .player .who b { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .player .who small { color: var(--dim); }
+  button.danger { background:#c8344a; }
+  table { border-collapse: collapse; width:100%; } td { padding: 3px 6px; border-bottom: 1px solid var(--line); }
+  #stats { font: 12px ui-monospace, monospace; white-space: pre; color: var(--dim); }
+</style>
+</head>
+<body>
+<header>
+  <h1>typejoin-arena · host</h1>
+  <span id="src" class="pill">source: ?</span>
+  <span id="state" class="pill">state: ?</span>
+  <span id="game" class="pill">game: ?</span>
+</header>
+<main>
+  <section style="grid-column: 1 / -1">
+    <h2>Round</h2>
+    <div class="row">
+      <button onclick="cmd({cmd:'pause'})">Pause</button>
+      <button onclick="cmd({cmd:'resume'})">Resume</button>
+      <button class="alt" onclick="if (confirm('Restart the current round? Everyone has to type join again.')) cmd({cmd:'restartRound'})">Restart round</button>
+      <span class="hint" id="roundInfo"></span>
+    </div>
+  </section>
+  <section style="grid-column: 1 / -1">
+    <h2>Alive players <span id="pcount"></span></h2>
+    <div class="row"><input id="filter" type="text" placeholder="filter by name" /></div>
+    <div id="players" class="players"></div>
+  </section>
+  <section>
+    <h2>Banned (data/bans.json)</h2>
+    <table id="bans"></table>
+  </section>
+  <section>
+    <h2>Stats</h2>
+    <div id="stats"></div>
+  </section>
+</main>
+<script>
+  async function cmd(body) {
+    const r = await fetch('/host/cmd', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    if (!r.ok) alert('failed: ' + (await r.text()));
+    refresh();
+  }
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+  function avatar(p) {
+    if (p.avatarUrl) { const i = el('img'); i.src = '/avatar?url=' + encodeURIComponent(p.avatarUrl); i.alt = ''; i.onerror = () => i.replaceWith(el('div', 'ini', (p.nickname || '?')[0])); return i; }
+    return el('div', 'ini', (p.nickname || '?')[0]);
+  }
+  let last = null;
+  function renderPlayers() {
+    if (!last) return;
+    const q = document.getElementById('filter').value.trim().toLowerCase();
+    const box = document.getElementById('players');
+    box.replaceChildren();
+    const list = last.game.players.filter((p) => !q || p.nickname.toLowerCase().includes(q)).sort((a, b) => b.mass - a.mass);
+    for (const p of list) {
+      const row = el('div', 'player');
+      const who = el('div', 'who');
+      who.append(el('b', '', p.nickname), el('small', '', Math.round(p.mass) + ' mass · id ' + p.userId));
+      const ban = el('button', 'danger', 'Remove and ban');
+      ban.onclick = () => { if (confirm('Remove and ban ' + p.nickname + '? They can never rejoin.')) cmd({ cmd: 'ban', userId: p.userId, nickname: p.nickname }); };
+      row.append(avatar(p), who, ban);
+      box.append(row);
+    }
+    document.getElementById('pcount').textContent = '(' + last.game.players.length + (last.game.queued ? ', queue ' + last.game.queued : '') + ')';
+  }
+  document.getElementById('filter').addEventListener('input', renderPlayers);
+  async function refresh() {
+    let s;
+    try { s = await (await fetch('/host/state')).json(); } catch { document.getElementById('state').className = 'pill bad'; return; }
+    last = s;
+    document.getElementById('src').textContent = 'source: ' + s.source;
+    const st = document.getElementById('state');
+    st.textContent = 'state: ' + s.state; st.className = 'pill ' + (s.state === 'live' ? 'ok' : 'bad');
+    const g = document.getElementById('game');
+    const fresh = s.game.ageMs !== null && s.game.ageMs < 3000;
+    g.textContent = fresh ? 'game: ' + s.game.phase + (s.game.paused ? ' (PAUSED)' : '') : 'game: not connected';
+    g.className = 'pill ' + (fresh && !s.game.paused ? 'ok' : 'bad');
+    document.getElementById('roundInfo').textContent = fresh ? 'round ' + s.game.roundNo + ' · ' + s.game.phase : '';
+    renderPlayers();
+    const bans = document.getElementById('bans');
+    bans.replaceChildren();
+    for (const b of s.bans) {
+      const tr = el('tr'); const un = el('button', 'alt', 'Unban'); un.onclick = () => cmd({ cmd: 'unban', userId: b.userId });
+      const td = el('td'); td.append(un);
+      tr.append(el('td', '', b.nickname), el('td', '', b.userId), el('td', '', b.bannedAt.slice(0, 16).replace('T', ' ')), td);
+      bans.append(tr);
+    }
+    if (!s.bans.length) bans.append(el('tr', '', 'nobody banned'));
+    document.getElementById('stats').textContent = JSON.stringify(s.stats, null, 2) + '\n\nstatus:\n' + s.statusLog.map((x) => x.at.slice(11, 19) + ' ' + x.state + (x.detail ? ' (' + x.detail + ')' : '')).join('\n');
+  }
+  refresh(); setInterval(refresh, 1000);
+</script>
+</body>
+</html>

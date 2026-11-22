@@ -1,5 +1,5 @@
 import { GIFT_ABILITIES, GIFT_MAP, devGifts, findGift } from '@typejoin/shared';
-import type { EventSource, RawSink, RawSourceEvent, RawUser } from './EventSource';
+import type { EventSource, RawSink, RawSourceEvent, RawUser, SourceStatusListener } from './EventSource';
 
 const ADJ = [
   'Happy', 'Sleepy', 'Turbo', 'Mega', 'Tiny', 'Lucky', 'Spicy', 'Cosmic', 'Sneaky', 'Wild',
@@ -45,6 +45,10 @@ const TICK_MS = 100;
 
 export class FakeSource implements EventSource {
   readonly name = 'fake';
+  readonly state = 'live' as const;
+  onStatus(_listener: SourceStatusListener): void {
+    // Always live.
+  }
   readonly users: RawUser[] = [];
   rates: FakeRates = { joinPerMin: 0, likesPerSec: 0, giftsPerMin: 0 };
 

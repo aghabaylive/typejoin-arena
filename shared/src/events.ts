@@ -60,10 +60,42 @@ export type GameEvent =
 
 export type GameEventType = GameEvent['type'];
 
-/** Envelope for messages sent over the bridge WebSocket. */
+/** State of the live source (TikTok). FakeSource is always 'live'. */
+export type SourceState = 'connecting' | 'live' | 'reconnecting' | 'ended';
+
+/** Host panel actions forwarded to the game. */
+export type HostAction =
+  | { action: 'pause' }
+  | { action: 'resume' }
+  | { action: 'restartRound' }
+  | { action: 'remove'; userId: string };
+
+/** Envelope for messages sent over the bridge WebSocket (bridge -> game). */
 export type BridgeMessage =
   | { kind: 'hello'; source: string; version: 1 }
-  | { kind: 'event'; event: GameEvent };
+  | { kind: 'event'; event: GameEvent }
+  | { kind: 'status'; state: SourceState; detail?: string }
+  | ({ kind: 'host' } & HostAction);
+
+/** Alive player as reported by the game to the host panel. */
+export interface PlayerSnapshot {
+  userId: string;
+  nickname: string;
+  avatarUrl?: string;
+  mass: number;
+}
+
+/** Messages the game sends back to the bridge (host panel state + delay stats). */
+export type GameToBridgeMessage = {
+  kind: 'players';
+  players: PlayerSnapshot[];
+  queued: number;
+  phase: string;
+  roundNo: number;
+  paused: boolean;
+  /** Bridge receive -> game handled, over events since the previous snapshot (ms). */
+  delay: { count: number; sumMs: number; maxMs: number };
+};
 
 export const BRIDGE_DEFAULT_PORT = 8787;
 
