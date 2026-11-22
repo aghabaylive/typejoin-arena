@@ -587,9 +587,20 @@ export class Sim {
     this.spawnPlayerBall(p);
   }
 
-  /** Remove bots while there are more balls than the bot floor requires. */
+  /** Bots wanted right now: max(0, countBase - real players alive). */
+  botTarget(): number {
+    return Math.max(0, this.cfg.bots.countBase - this.aliveRealOwners());
+  }
+
+  botCount(): number {
+    let n = 0;
+    for (const b of this.balls) if (b.isBot) n++;
+    return n;
+  }
+
+  /** Remove bots (smallest first) while there are more than the target. */
   private trimBots(): void {
-    while (this.balls.length > this.cfg.bots.minBalls) {
+    while (this.botCount() > this.botTarget()) {
       let victim: Ball | undefined;
       for (const b of this.balls) if (b.isBot && (!victim || b.mass < victim.mass)) victim = b;
       if (!victim) return;
@@ -769,7 +780,8 @@ export class Sim {
       }
     }
     // Bots keep the arena lively.
-    if (this.balls.length < this.cfg.bots.minBalls && this.time >= this.nextBotAt) {
+    // (Bots are trimmed when a real player spawns - the only moment the target drops.)
+    if (this.botCount() < this.botTarget() && this.time >= this.nextBotAt) {
       this.spawnBot();
       this.nextBotAt = this.time + this.cfg.bots.spawnIntervalSec;
     }
@@ -887,13 +899,16 @@ export class Sim {
 
   private eatPellets(): void {
     let any = false;
+    const botMax = this.cfg.bots.maxMass;
     for (const b of this.balls) {
+      if (b.isBot && b.mass >= botMax) continue; // full bots leave pellets for the players
       this.pelletGrid.query(b.x, b.y, b.radius, (p) => {
-        if (p.eaten) return;
+        if (p.eaten || (b.isBot && b.mass >= botMax)) return;
         if ((p.x - b.x) ** 2 + (p.y - b.y) ** 2 > b.radius * b.radius) return;
         p.eaten = true;
         any = true;
         b.mass += p.value;
+        if (b.isBot) b.mass = Math.min(b.mass, botMax);
       });
     }
     if (any) {
@@ -945,8 +960,9 @@ export class Sim {
         if (!this.contactSince.has(key)) this.contactSince.set(key, this.time);
         if (this.isHarmless(a) || this.isHarmless(b)) continue;
         const x = a.x + nx * (a.radius - overlap / 2), y = a.y + ny * (a.radius - overlap / 2);
-        cands[i].push({ j, x, y });
-        cands[j].push({ j: i, x, y });
+        // Bots are prey only: a bot never damages anyone (players or other bots); players can eat bots.
+        if (!a.isBot) cands[i].push({ j, x, y });
+        if (!b.isBot) cands[j].push({ j: i, x, y });
       }
     }
     for (const k of this.contactSince.keys()) if (!seen.has(k)) this.contactSince.delete(k);
@@ -1154,6 +1170,7 @@ export class Sim {
     for (const b of this.balls) {
       if (b.mass > B.decayAboveMass) b.mass -= b.mass * B.decayPerSec * dt;
       if (storm && Math.hypot(b.x - cx, b.y - cy) > safe) b.mass -= b.mass * this.cfg.storm.damagePerSec * dt;
+      if (b.isBot && b.mass > this.cfg.bots.maxMass) b.mass = this.cfg.bots.maxMass;
       b.radius = this.radiusFor(b.mass);
     }
   }
@@ -1191,9 +1208,10 @@ export class Sim {
         }
         if (victim.isBot) this.players.delete(victim.userId);
       }
-      if (killer) {
+      // Eating a bot gives mass (already gained) but no kill: kills feed the TOP PLAYERS panel and points.
+      if (killer && !b.isBot) {
         const k = this.players.get(killer);
-        if (k) k.kills++;
+        if (k && !k.isBot) k.kills++;
       }
     }
   }

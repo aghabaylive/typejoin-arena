@@ -216,9 +216,14 @@ export const CONFIG = {
     damagePerSec: 0.05, // 5 % of mass / s outside the safe zone
   },
 
+  /**
+   * Bots only keep the arena from looking empty; they are prey, never a threat: they deal no contact damage,
+   * flee from players, and stay at or below maxMass. Count = max(0, countBase - real players alive).
+   */
   bots: {
-    minBalls: 8,
-    /** Seconds between bot spawns while below minBalls. */
+    countBase: 4,
+    maxMass: 60,
+    /** Seconds between bot spawns while below the target count. */
     spawnIntervalSec: 0.5,
   },
 

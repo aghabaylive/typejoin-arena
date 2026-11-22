@@ -204,7 +204,7 @@ function runOnce(pool: number, minutes: number, seed: number, overrides: Record<
           lifeStart.delete(e.ownerId);
         }
         if (e.ownerId === whaleId && sim.time >= whaleHoleAt) whaleDied = true;
-        if (e.killerOwner && roles.has(e.killerOwner)) {
+        if (e.killerOwner && roles.has(e.killerOwner) && roles.has(e.ownerId)) { // bot kills do not count
           winKills.set(e.killerOwner, (winKills.get(e.killerOwner) ?? 0) + 1);
           st.kills++;
         }

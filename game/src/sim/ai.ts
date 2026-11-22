@@ -4,6 +4,7 @@ import type { Sim } from './Sim';
 /**
  * Autonomous movement. Viewers never steer (stream delay makes that impossible).
  * Priority: storm escape > flee > chase > pellet > wander.
+ * Bots: storm escape > flee from any player ball nearby > pellet (until full) > wander. They never chase.
  * Result: unit direction in b.aiDx / b.aiDy and b.aiMode.
  */
 export function think(sim: Sim, b: Ball): void {
@@ -23,6 +24,36 @@ export function think(sim: Sim, b: Ball): void {
   // 0) Storm: get back into the safe zone first.
   if (sim.stormActive() && distC > sim.safeRadius() - b.radius * 0.5) {
     set(dxC, dyC, 'storm');
+    return finish();
+  }
+
+  // Bots are prey: flee from every player ball in range, never chase.
+  if (b.isBot) {
+    const range = sight * t.fleeMul;
+    let fx = 0, fy = 0;
+    for (const o of sim.balls) {
+      if (o.isBot) continue;
+      const ox = o.x - b.x, oy = o.y - b.y;
+      const d = Math.hypot(ox, oy) || 0.001;
+      const gap = d - o.radius - b.radius;
+      if (gap < range) {
+        const w = 1 - Math.max(0, gap) / range + 0.2;
+        fx -= (ox / d) * w;
+        fy -= (oy / d) * w;
+      }
+    }
+    if (fx || fy) {
+      const edge = distC / (c.arena.radius - b.radius + 1);
+      if (edge > 0.7) {
+        fx += (dxC / (distC || 1)) * (edge - 0.7) * 3;
+        fy += (dyC / (distC || 1)) * (edge - 0.7) * 3;
+      }
+      set(fx, fy, 'flee');
+      return finish();
+    }
+    const p = b.mass < c.bots.maxMass ? sim.nearestPellet(b.x, b.y) : undefined;
+    if (p) set(p.x - b.x, p.y - b.y, 'pellet');
+    else wander();
     return finish();
   }
 
@@ -86,16 +117,18 @@ export function think(sim: Sim, b: Ball): void {
   } else {
     const p = sim.nearestPellet(b.x, b.y);
     if (p) set(p.x - b.x, p.y - b.y, 'pellet');
-    else {
-      if (now >= b.wanderUntil) {
-        b.wanderAngle += (sim.rand() - 0.5) * Math.PI * 1.5;
-        const [lo, hi] = ai.wanderChangeSec;
-        b.wanderUntil = now + lo + sim.rand() * (hi - lo);
-      }
-      set(Math.cos(b.wanderAngle), Math.sin(b.wanderAngle), 'wander');
-    }
+    else wander();
   }
   return finish();
+
+  function wander() {
+    if (now >= b.wanderUntil) {
+      b.wanderAngle += (sim.rand() - 0.5) * Math.PI * 1.5;
+      const [lo, hi] = ai.wanderChangeSec;
+      b.wanderUntil = now + lo + sim.rand() * (hi - lo);
+    }
+    set(Math.cos(b.wanderAngle), Math.sin(b.wanderAngle), 'wander');
+  }
 
   function set(x: number, y: number, m: Ball['aiMode']) {
     const l = Math.hypot(x, y);

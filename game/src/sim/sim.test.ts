@@ -22,7 +22,7 @@ function makeSim(over: Record<string, unknown> = {}) {
     seed: 1,
     config: {
       pellets: { target: 0, perPlayer: 0 },
-      bots: { minBalls: 0 },
+      bots: { countBase: 0 },
       spikes: { count: 0 },
       ball: { decayPerSec: 0 },
       ...over,
@@ -479,17 +479,82 @@ describe('TOP PLAYERS panel + window scoring', () => {
     expect(overlap).toBe(0);
   });
 
-  it('bots fill up to 8 balls and leave as real players join', () => {
-    const sim = new Sim({ seed: 9 });
+});
+
+describe('bots (prey only)', () => {
+  it('count = max(0, 4 - real players alive): one leaves per joining player, none with 4+, they come back as players leave', () => {
+    const sim = new Sim({ seed: 9, config: { pellets: { target: 0, perPlayer: 0 }, spikes: { count: 0 } } as never });
+    const bots = () => sim.balls.filter((b) => b.isBot).length;
     for (let i = 0; i < 300; i++) sim.step(DT);
-    expect(sim.balls.length).toBe(8);
+    expect(bots()).toBe(CONFIG.bots.countBase);
     expect(sim.balls.every((b) => b.isBot)).toBe(true);
-    for (let i = 0; i < 5; i++) sim.handleEvent(ev({ type: 'join', userId: `r${i}`, nickname: `R${i}` }));
-    expect(sim.balls.length).toBe(8);
-    expect(sim.balls.filter((b) => !b.isBot).length).toBe(5);
-    for (let i = 5; i < 12; i++) sim.handleEvent(ev({ type: 'join', userId: `r${i}`, nickname: `R${i}` }));
-    expect(sim.balls.filter((b) => b.isBot).length).toBe(0);
-    expect(sim.balls.length).toBe(12);
+    for (let i = 0; i < 6; i++) {
+      sim.handleEvent(ev({ type: 'join', userId: `r${i}`, nickname: `R${i}` }));
+      expect(bots(), `after ${i + 1} players`).toBe(Math.max(0, CONFIG.bots.countBase - (i + 1)));
+    }
+    for (let i = 0; i < 300; i++) sim.step(DT);
+    expect(bots()).toBe(0);
+    for (const u of ['r0', 'r1', 'r2', 'r3']) sim.removePlayer(u); // 2 real players left
+    for (let i = 0; i < 300; i++) sim.step(DT);
+    expect(bots()).toBe(2);
+  });
+
+  it('a bot never damages a player (even a much bigger bot), and bots never damage each other; players eat bots', () => {
+    const sim = quietSim();
+    const bot = sim.debugSpawn({ ownerId: 'bot:1', mass: 1000, x: cx, y: cy, isBot: true });
+    const p = sim.debugSpawn({ ownerId: 'p', mass: 30, x: cx + 50, y: cy });
+    const bot2 = sim.debugSpawn({ ownerId: 'bot:2', mass: 20, x: cx - 40, y: cy, isBot: true });
+    freeze(sim);
+    sim.contacts(DT);
+    expect(p.mass).toBeGreaterThan(30); // the player bites the bot
+    expect(bot2.mass).toBe(20); // bot vs bot: nothing
+    expect(bot.mass).toBeLessThan(1000);
+    expect(bot.mouthId).toBe(0);
+  });
+
+  it('bot mass is capped at 60: pellets stop counting, and it can never be King', () => {
+    const sim = quietSim();
+    const bot = sim.debugSpawn({ ownerId: 'bot:1', mass: 55, x: cx, y: cy, isBot: true });
+    freeze(sim);
+    for (let i = 0; i < 20; i++) sim.pellets.push({ id: 90000 + i, x: cx + (i % 5), y: cy, vx: 0, vy: 0, value: 1, kind: 'normal', born: 0, eaten: false });
+    sim.step(DT);
+    expect(bot.mass).toBe(CONFIG.bots.maxMass);
+    expect(sim.pellets.length).toBe(15); // a full bot leaves the rest for the players
+    const big = sim.debugSpawn({ ownerId: 'bot:2', mass: 5000, x: cx - 300, y: cy, isBot: true });
+    sim.step(DT);
+    expect(big.mass).toBe(CONFIG.bots.maxMass);
+    expect(sim.kingOwner).toBeNull();
+  });
+
+  it('bots flee from player balls instead of chasing them', () => {
+    const sim = quietSim();
+    const bot = sim.debugSpawn({ ownerId: 'bot:1', mass: 60, x: cx, y: cy, isBot: true });
+    sim.debugSpawn({ ownerId: 'p', mass: 20, x: cx + 120, y: cy }); // smaller player nearby
+    bot.aiNextThink = 0;
+    sim.step(DT);
+    expect(bot.aiMode).toBe('flee');
+    expect(bot.aiDx).toBeLessThan(-0.9);
+  });
+
+  it('eating a bot gives mass but no kill point (panel and session points)', () => {
+    const sim = quietSim();
+    sim.debugStorm(-1e9);
+    const p = sim.debugSpawn({ ownerId: 'p', mass: 400, x: cx, y: cy });
+    const bot = sim.debugSpawn({ ownerId: 'bot:1', mass: 20, x: cx + 60, y: cy, isBot: true });
+    for (let i = 0; i < 5 * 60 && sim.ballsOf('bot:1').length; i++) {
+      freeze(sim);
+      bot.x = cx + 60; // hold it in the player's mouth (separation would push it out)
+      bot.y = cy;
+      p.x = cx;
+      p.y = cy;
+      sim.step(DT);
+    }
+    expect(sim.ballsOf('bot:1')).toHaveLength(0);
+    expect(p.mass).toBeGreaterThan(400);
+    expect(sim.players.get('p')!.kills).toBe(0);
+    const panel = sim.closeWindow();
+    expect(panel.killers).toEqual([]);
+    expect(sim.leaderboard.points('p')).toBe(10); // placement only, no kill point
   });
 });
 
@@ -756,7 +821,7 @@ describe('pellets', () => {
   });
 
   it('respawn fills up to the player-dependent target (bots do not count)', () => {
-    const sim = new Sim({ seed: 2, config: { bots: { minBalls: 0 }, spikes: { count: 0 } } as never });
+    const sim = new Sim({ seed: 2, config: { bots: { countBase: 0 }, spikes: { count: 0 } } as never });
     for (let i = 0; i < 50; i++) sim.handleEvent(ev({ type: 'join', userId: `r${i}`, nickname: `R${i}` }));
     sim.debugSpawn({ ownerId: 'bot:1', mass: 20, x: cx, y: cy, isBot: true, protectedSec: 999 });
     expect(sim.pelletTarget()).toBe(250);

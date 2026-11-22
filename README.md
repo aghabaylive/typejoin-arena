@@ -127,5 +127,6 @@ game/    Vite + PixiJS v8
 - Shield and Magnet extend per unit, capped at 60 s. Dash extends per unit, capped at 10 s. Black hole gives 5 s for the first unit and +2 s per extra unit, capped at 10 s.
 - Split pieces share their owner's ability timers. Kills and revenge count only when the owner's last piece dies. Pieces merge on contact after 12 s, and are forced together 3 s after that.
 - The storm event shrinks a safe zone inside the arena. Balls can still enter the red ring, but they take 5 %/s damage there.
-- Live top 3, King, and titles consider real players only. Bots can eat and get kills, but never win titles.
+- Live top 3, King, and titles consider real players only.
+- Bots only keep the arena from looking empty: count = max(0, 4 - real players alive) (`bots.countBase`), so with 4+ real players there are none; as players join, bots leave one at a time. Bots are prey: they never deal contact damage (to players or to each other), flee from player balls, eat pellets only up to 60 mass (`bots.maxMass`), and never become King. Eating a bot gives mass but no kill point (not in the TOP PLAYERS panel or session points).
 - King: no King while the biggest player has under 100 mass; when there is no King, the first player to reach 100 mass is crowned immediately. The King card in the top bar shows the reign time. A challenger takes the crown after having 10 % more mass than the King for 1.5 s continuously. The screen shakes on a King change only when the new King has 1000+ mass.
