@@ -124,6 +124,7 @@ game/    Vite + PixiJS v8
 - Mass decay above 500: 1 %/s.
 - Crowding: when all balls together cover more than 40 % of the arena (during the storm: of the current safe zone), every radius shrinks by the same factor (smoothly, never below 0.5x). Rules use mass; only drawn and collision size change.
 - Pellet target = 150 + 2 per real player in the arena, max 400.
+- Black Hole ignores Shield: a shielded ball in the Black Hole range with under 50 % of the sender's mass loses its shield (a short green shatter on the ring and "SHIELD BROKEN") and is then pulled in and absorbed like any other ball, so a 30-coin defense never cancels a 1000-coin attack. Spawn protection (the first 3 s after joining) still protects against the Black Hole. Shield keeps blocking everything else: contact damage, Spike shot and the Magnet pull.
 - Shield and Magnet extend per unit, capped at 60 s. Dash extends per unit, capped at 10 s. Black hole gives 5 s for the first unit and +2 s per extra unit, capped at 10 s.
 - Split pieces share their owner's ability timers. Kills and revenge count only when the owner's last piece dies. Pieces merge on contact after 12 s, and are forced together 3 s after that.
 - The storm event shrinks a safe zone inside the arena. Balls can still enter the red ring, but they take 5 %/s damage there.

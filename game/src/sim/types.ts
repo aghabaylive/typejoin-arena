@@ -162,6 +162,7 @@ export type SimEvent =
   | { type: 'merge'; ownerId: string; ballId: number }
   | { type: 'ability'; ability: AbilityId; ownerId: string; nickname: string; units: number }
   | { type: 'spikeShotHit'; targetOwner: string; x: number; y: number; blocked: boolean; split: boolean }
+  | { type: 'shieldBroken'; ownerId: string; ballId: number; by: string }
   | { type: 'kingChanged'; from: string | null; to: string | null }
   | { type: 'feast'; active: boolean }
   | { type: 'gift'; ownerId: string; mass: number; giftName?: string }

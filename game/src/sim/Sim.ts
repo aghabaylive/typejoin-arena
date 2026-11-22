@@ -866,11 +866,22 @@ export class Sim {
           pl.y += (dy / d) * step;
         });
         for (const o of this.balls) {
-          if (o.ownerId === p.userId || this.isHarmless(o)) continue;
+          if (o.ownerId === p.userId) continue;
+          // Spawn protection always holds (a viewer who just joined is never instantly absorbed).
+          if (o.protectedUntil > this.time) continue;
+          // A Shield blocks the Magnet, but not a Black Hole: a 30-coin defense must not cancel a 1000-coin attack.
+          const op = this.players.get(o.ownerId);
+          const shielded = !!op && op.shieldUntil > this.time;
+          if (shielded && !hole) continue;
           if (o.mass >= src.mass * f.ballMassRatio) continue;
           const dx = src.x - o.x, dy = src.y - o.y;
           const d = Math.hypot(dx, dy);
           if (d > f.range + src.radius || d < 1) continue;
+          if (shielded && op) {
+            // The shield breaks first (visible shatter), then the ball is pulled in and absorbed like any other.
+            op.shieldUntil = this.time;
+            this.emit({ type: 'shieldBroken', ownerId: o.ownerId, ballId: o.id, by: p.userId });
+          }
           const step = Math.min(d, f.ballPull * dt * (0.4 + (1 - d / (f.range + src.radius))));
           o.x += (dx / d) * step;
           o.y += (dy / d) * step;

@@ -558,6 +558,93 @@ describe('bots (prey only)', () => {
   });
 });
 
+describe('Black Hole vs Shield', () => {
+  /** Black-hole owner (1000) at the center, a smaller ball 200 px away (inside the 350 range, under 50 %). */
+  const setup = (o: { shielded: boolean; protectedSec?: number }) => {
+    const sim = quietSim();
+    const hole = sim.debugSpawn({ ownerId: 'whale', mass: 1000, x: cx, y: cy });
+    const prey = sim.debugSpawn({ ownerId: 'prey', mass: 100, x: cx + 200, y: cy, protectedSec: o.protectedSec ?? 0 });
+    if (o.shielded) sim.players.get('prey')!.shieldUntil = sim.time + 30;
+    sim.players.get('whale')!.blackHoleUntil = sim.time + CONFIG.abilities.blackHole.sec;
+    sim.drainEvents();
+    return { sim, hole, prey };
+  };
+  const run = (sim: Sim, sec: number) => {
+    const events: ReturnType<Sim['drainEvents']> = [];
+    for (let i = 0; i < Math.round(sec * 60); i++) {
+      freeze(sim);
+      sim.step(DT);
+      events.push(...sim.drainEvents());
+    }
+    return events;
+  };
+
+  it('a shielded ball is not protected: the shield breaks (visible event) and the ball is absorbed', () => {
+    const { sim, hole } = setup({ shielded: true });
+    const events = run(sim, CONFIG.abilities.blackHole.sec);
+    const broken = events.filter((e) => e.type === 'shieldBroken');
+    expect(broken).toHaveLength(1);
+    expect(broken[0]).toMatchObject({ ownerId: 'prey', by: 'whale' });
+    expect(sim.players.get('prey')!.shieldUntil).toBeLessThanOrEqual(sim.time);
+    // The shield breaks before the ball is absorbed.
+    const iBroken = events.findIndex((e) => e.type === 'shieldBroken');
+    const iEaten = events.findIndex((e) => e.type === 'eaten' && e.ownerId === 'prey');
+    expect(iEaten).toBeGreaterThan(iBroken);
+    expect(sim.ballsOf('prey')).toHaveLength(0);
+    expect(hole.mass).toBeGreaterThan(1000);
+    expect(sim.players.get('whale')!.kills).toBe(1);
+  });
+
+  it('spawn protection still holds: a viewer who just joined is not pulled in or absorbed', () => {
+    const { sim, prey } = setup({ shielded: true, protectedSec: CONFIG.ball.spawnProtectionSec });
+    const events = run(sim, 2);
+    expect(prey.x).toBeCloseTo(cx + 200, 6);
+    expect(prey.mass).toBe(100);
+    expect(events.some((e) => e.type === 'shieldBroken')).toBe(false);
+    expect(sim.players.get('prey')!.shieldUntil).toBeGreaterThan(sim.time); // shield untouched
+  });
+
+  it('the 50 % rule still applies to shielded balls: a big shielded ball keeps its shield', () => {
+    const { sim, prey } = setup({ shielded: true });
+    prey.mass = 600; // >= 50 % of the sender
+    const events = run(sim, 1);
+    expect(events.some((e) => e.type === 'shieldBroken')).toBe(false);
+    expect(sim.players.get('prey')!.shieldUntil).toBeGreaterThan(sim.time);
+  });
+
+  it('Shield still blocks contact damage and Spike shot', () => {
+    const sim = quietSim();
+    const big = sim.debugSpawn({ ownerId: 'big', mass: 1000, x: cx, y: cy });
+    const s = sim.debugSpawn({ ownerId: 's', mass: 50, x: cx + 40, y: cy });
+    sim.players.get('s')!.shieldUntil = sim.time + 30;
+    freeze(sim);
+    sim.contacts(DT);
+    expect(s.mass).toBe(50);
+    expect(big.mass).toBe(1000);
+    const target = sim.debugSpawn({ ownerId: 't', mass: 2000, x: cx - 300, y: cy });
+    sim.players.get('t')!.shieldUntil = sim.time + 30;
+    sim.drainEvents();
+    sim.spikeShotHit(target, target.x, target.y);
+    expect(sim.ballsOf('t')).toHaveLength(1);
+    expect(target.mass).toBe(2000);
+    expect(sim.drainEvents().find((e) => e.type === 'spikeShotHit')).toMatchObject({ blocked: true });
+  });
+
+  it('Magnet still respects the Shield (only the Black Hole overpowers it)', () => {
+    const sim = quietSim();
+    sim.debugSpawn({ ownerId: 'm', mass: 1000, x: cx, y: cy });
+    const s = sim.debugSpawn({ ownerId: 's', mass: 100, x: cx + 200, y: cy });
+    sim.players.get('s')!.shieldUntil = sim.time + 30;
+    sim.players.get('m')!.magnetUntil = sim.time + 10;
+    for (let i = 0; i < 60; i++) {
+      freeze(sim);
+      sim.step(DT);
+    }
+    expect(s.x).toBeCloseTo(cx + 200, 6);
+    expect(sim.players.get('s')!.shieldUntil).toBeGreaterThan(sim.time);
+  });
+});
+
 describe('one mouth at a time + digestion', () => {
   /** Hold balls in place (push separation would move them apart). */
   const hold = (sim: Sim, spots: [ReturnType<Sim['debugSpawn']>, number, number][]) => {

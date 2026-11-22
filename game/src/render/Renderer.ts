@@ -148,6 +148,24 @@ export class Renderer {
         this.ringFlash(e.x, e.y, e.radius * 1.2, 0xffffff);
         break;
       }
+      case 'shieldBroken': {
+        // A Black Hole overpowered the Shield: shatter the bubble so viewers see it break (not a bug).
+        const v = this.viewPos(e.ballId);
+        const b = sim.ballById(e.ballId);
+        const x = v?.x ?? b?.x, y = v?.y ?? b?.y, r = (v?.r ?? b?.radius ?? 30) * 1.15;
+        if (x === undefined || y === undefined) break;
+        for (let i = 0; i < 16; i++) {
+          const a = (i / 16) * Math.PI * 2;
+          const sp = 220 + Math.random() * 120; // shards fly outward from the ring
+          P.spawn(T.shard, x + Math.cos(a) * r, y + Math.sin(a) * r, {
+            vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, tint: 0x3dff9b, scale: 0.55, life: 0.55, spin: 18 * (Math.random() - 0.5), rot: a,
+          });
+        }
+        this.ringFlash(x, y, r, 0x3dff9b);
+        P.burst(T.dot, x, y, 10, 320, 0xffffff, 0.3, 0.35);
+        this.floaters.add('SHIELD BROKEN', x, y - r - 30, 42, 0x3dff9b, 1.1, -70);
+        break;
+      }
       case 'spikeShotHit': {
         P.burst(T.shard, e.x, e.y, e.blocked ? 18 : 30, 420, e.blocked ? 0x3dff9b : 0xff5b5b, 0.7, 0.6, 14);
         this.floaters.add(e.blocked ? 'BLOCKED' : e.split ? 'SPLIT!' : '-30%', e.x, e.y - 40, 48, e.blocked ? 0x3dff9b : 0xff5b5b, 1.1);
