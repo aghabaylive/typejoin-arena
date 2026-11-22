@@ -174,7 +174,7 @@ export class BallLayer {
     const mag = !!p && p.magnetUntil > t && !hole;
     v.hole.visible = hole;
     if (hole) {
-      const s = (CONFIG.abilities.blackHole.range + r) * 2;
+      const s = (sim.fieldRange(CONFIG.abilities.blackHole.range) + r) * 2;
       v.hole.width = v.hole.height = s;
       v.hole.rotation -= dt * 3;
       v.hole.alpha = 0.9;
@@ -182,7 +182,7 @@ export class BallLayer {
     v.magnet.visible = mag;
     if (mag) {
       const pulse = (now * 0.8) % 1; // contracting rings read as "pull"
-      const s = (CONFIG.abilities.magnet.range + r) * 2 * (1 - pulse * 0.6);
+      const s = (sim.fieldRange(CONFIG.abilities.magnet.range) + r) * 2 * (1 - pulse * 0.6);
       v.magnet.width = v.magnet.height = s;
       v.magnet.alpha = 0.25 + pulse * 0.6;
     }

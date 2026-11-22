@@ -53,6 +53,11 @@ export class Sim {
   private pendingShots: PendingShot[] = [];
   private pelletGrid: PointGrid<Pellet>;
   private ballIndex = new Map<number, Ball>();
+  /** Pair key "minId:maxId" -> sim time the pair started overlapping. */
+  private contactSince = new Map<string, number>();
+  /** FIFO of user ids waiting for a free slot (alive cap). */
+  joinQueue: string[] = [];
+  private carryQueue: string[] = [];
 
   constructor(opts: SimOptions = {}) {
     this.cfg = deepMerge(CONFIG, opts.config);
@@ -190,6 +195,37 @@ export class Sim {
     return s.size;
   }
 
+  /** Magnet / black-hole range, shrunk with the storm's safe zone. */
+  fieldRange(base: number): number {
+    return base * (this.safeRadius() / this.cfg.arena.radius);
+  }
+
+  /** Real players with a ball (the alive cap counts owners; split pieces share one slot). */
+  aliveRealOwners(): number {
+    return this.realPlayerCount();
+  }
+
+  /** Spawn the player now if there is a free slot, else put them in the queue (front = gift priority). */
+  private requestSpawn(p: Player, front = false): boolean {
+    if (this.ballsOf(p.userId).length > 0) return true;
+    if (p.isBot || this.aliveRealOwners() < this.cfg.queue.maxAlive) {
+      this.joinQueue = this.joinQueue.filter((id) => id !== p.userId);
+      this.spawnPlayerBall(p);
+      return true;
+    }
+    const at = this.joinQueue.indexOf(p.userId);
+    if (front) {
+      if (at >= 0) this.joinQueue.splice(at, 1);
+      this.joinQueue.unshift(p.userId);
+    } else if (at < 0) this.joinQueue.push(p.userId);
+    return false;
+  }
+
+  /** Queue length and the next few nicknames (HUD). */
+  queueView(n = this.cfg.queue.showNext): { length: number; next: string[] } {
+    return { length: this.joinQueue.length, next: this.joinQueue.slice(0, n).map((id) => this.players.get(id)?.nickname ?? id) };
+  }
+
   pelletTarget(): number {
     return pelletTarget(this.realPlayerCount(), this.cfg);
   }
@@ -246,7 +282,7 @@ export class Sim {
     }
     if (this.ownerMass(userId) > 0 || this.ballsOf(userId).length > 0) return;
     if (this.time < p.rejoinAt) return; // rejoin cooldown after being eaten
-    this.spawnPlayerBall(p);
+    this.requestSpawn(p);
   }
 
   private onGift(userId: string, nickname: string, avatarUrl: string | undefined, g: QueuedGift, giftName?: string): void {
@@ -263,13 +299,17 @@ export class Sim {
         this.emitQueued(p, g, giftName, 'respawn');
         return;
       }
-      this.spawnPlayerBall(p);
+      if (!this.requestSpawn(p, true)) {
+        p.pendingGifts.push(g); // arena full: gifter jumps to the front; applied on spawn
+        this.emitQueued(p, g, giftName, 'spawn');
+        return;
+      }
     }
     this.applyGift(p, g, giftName);
   }
 
   /** Lets the sender see that a gift sent while they cannot play right now was registered. */
-  private emitQueued(p: Player, g: QueuedGift, giftName: string | undefined, when: 'nextRound' | 'respawn'): void {
+  private emitQueued(p: Player, g: QueuedGift, giftName: string | undefined, when: 'nextRound' | 'respawn' | 'spawn'): void {
     const ability = this.cfg.gifts.abilities[g.giftId];
     const row = ability ? this.cfg.legend.find((l) => l.ability === ability) : undefined;
     const what = row?.label ?? giftName ?? 'Gift';
@@ -428,7 +468,7 @@ export class Sim {
       aiMode: 'wander', aiDx: 0, aiDy: 0, aiNextThink: this.time + this.rand() * this.cfg.ai.thinkIntervalSec,
       wanderAngle: this.rand() * Math.PI * 2, wanderUntil: 0,
       inContact: false, lastDamagerOwner: null, lastDamagedAt: -1, spillAcc: 0, spillX: x, spillY: y, massBefore: mass,
-      contactRef: mass, contactRefAt: -1, swallowerId: 0,
+      contactRef: mass, contactRefAt: -1, swallowerId: 0, mouthId: 0, digestUntil: 0, lastDamagerBall: 0,
     };
     this.balls.push(b);
     this.ballIndex.set(b.id, b);
@@ -557,10 +597,19 @@ export class Sim {
     this.sizeScale = 1;
     for (let i = 0; i < this.cfg.pellets.target; i++) this.spawnPellet('normal', this.cfg.pellets.value);
     this.enterPhase('join');
-    for (const p of [...this.players.values()]) {
-      if (p.queuedJoin) {
+    this.joinQueue = [];
+    const carried = this.carryQueue;
+    this.carryQueue = [];
+    const order = [
+      ...carried.map((id) => this.players.get(id)).filter((p): p is Player => !!p),
+      ...[...this.players.values()].filter((p) => !carried.includes(p.userId)),
+    ];
+    // Gifters first (they jump the queue), then last round's queue, then other queued joins.
+    order.sort((a, b) => Number(b.pendingGifts.length > 0) - Number(a.pendingGifts.length > 0));
+    for (const p of order) {
+      if (p.queuedJoin || carried.includes(p.userId)) {
         p.queuedJoin = false;
-        this.spawnPlayerBall(p); // applies pending (carried) gifts too
+        this.requestSpawn(p, false); // applies pending (carried) gifts on spawn
       }
     }
   }
@@ -600,6 +649,9 @@ export class Sim {
     const realPlayers = [...this.players.values()].filter((p) => !p.isBot && p.everJoinedThisRound);
     this.leaderboard.addRound(ranked.map(([id]) => this.players.get(id)!), realPlayers);
     this.lastResults = { roundNo: this.roundNo, king, killer, bestFree, top: this.leaderboard.top(this.cfg.leaderboard.showTop) };
+    // Queued joiners keep their place: they spawn (in queue order) at the next round's start.
+    this.carryQueue = [...this.joinQueue];
+    this.joinQueue = [];
     // Gifts still waiting for a respawn carry into the next round.
     for (const p of this.players.values()) {
       if (p.pendingGifts.length) {
@@ -652,9 +704,14 @@ export class Sim {
   private processQueues(): void {
     // Gifts that waited for a rejoin cooldown: auto-join now.
     for (const p of this.players.values()) {
-      if (p.pendingGifts.length && this.time >= p.rejoinAt && this.ballsOf(p.userId).length === 0) {
-        this.spawnPlayerBall(p);
+      if (p.pendingGifts.length && this.time >= p.rejoinAt && this.ballsOf(p.userId).length === 0 && !this.joinQueue.includes(p.userId)) {
+        this.requestSpawn(p, true);
       }
+    }
+    // Free slots go to the queue, first come first served.
+    while (this.joinQueue.length && this.aliveRealOwners() < this.cfg.queue.maxAlive) {
+      const p = this.players.get(this.joinQueue.shift()!);
+      if (p && this.ballsOf(p.userId).length === 0) this.spawnPlayerBall(p);
     }
     // Staggered spike shots.
     if (this.pendingShots.length && this.combatEnabled()) {
@@ -737,7 +794,8 @@ export class Sim {
       const mag = p.magnetUntil > this.time;
       if (!hole && !mag) continue;
       for (const src of this.ballsOf(p.userId)) {
-        const f = hole ? A.blackHole : A.magnet;
+        const f0 = hole ? A.blackHole : A.magnet;
+        const f = { ...f0, range: this.fieldRange(f0.range) };
         this.pelletGrid.query(src.x, src.y, f.range, (pl) => {
           const dx = src.x - pl.x, dy = src.y - pl.y;
           const d = Math.hypot(dx, dy);
@@ -798,19 +856,18 @@ export class Sim {
   /**
    * The single contact rule (eating == fighting). For each overlapping pair of different owners:
    *   B.loss = min(B.mass, rate * min(A.mass, maxAttackerRatio * B.ref) * dt), A gains gainFraction * B.loss,
-   * the rest spills as pellets; and symmetrically at the same time. Plus soft separation.
-   * B.ref is B's mass when the fight started (so the cap does not shrink with B and a kill takes >= ~0.4 s).
+   * the rest spills as pellets. B.ref is B's mass when the fight started (linear drain, kill >= ~0.4 s).
+   * One mouth at a time: A damages only its current target (see below); other contacts only push.
+   * After a kill A digests for contact.digestSec (deals no damage, takes damage normally). Plus soft separation.
    */
   contacts(dt: number): void {
     const c = this.cfg.contact;
     const balls = this.balls;
     const n = balls.length;
-    const loss = new Float64Array(n);
-    const gainsFrom: { victim: number; attacker: number; amount: number; x: number; y: number }[] = [];
     const combat = this.combatEnabled();
-    // Fight reference mass: kept while the ball stays in damaging contact, reset after a break.
-    const refOf = (b: Ball) =>
-      b.contactRefAt >= this.time - 1.5 * dt ? Math.max(b.contactRef, b.massBefore) : b.massBefore;
+    /** Per ball: combat-eligible contacts (index + contact point). */
+    const cands: { j: number; x: number; y: number }[][] = Array.from({ length: n }, () => []);
+    const seen = new Set<string>();
 
     for (let i = 0; i < n; i++) {
       const a = balls[i];
@@ -834,32 +891,72 @@ export class Sim {
         b.y += ny * push * wb;
         if (sameOwner) continue;
         a.inContact = b.inContact = true;
+        // How long this pair has overlapped (for picking the mouth target).
+        const key = a.id < b.id ? `${a.id}:${b.id}` : `${b.id}:${a.id}`;
+        seen.add(key);
+        if (!this.contactSince.has(key)) this.contactSince.set(key, this.time);
         if (!combat || this.isHarmless(a) || this.isHarmless(b)) continue;
-        const cxp = a.x + nx * (a.radius - overlap / 2), cyp = a.y + ny * (a.radius - overlap / 2);
-        const refA = refOf(a), refB = refOf(b);
-        const lb = Math.min(b.massBefore, c.rate * Math.min(a.massBefore, c.maxAttackerRatio * refB) * dt);
-        const la = Math.min(a.massBefore, c.rate * Math.min(b.massBefore, c.maxAttackerRatio * refA) * dt);
-        a.contactRef = refA;
-        b.contactRef = refB;
-        a.contactRefAt = b.contactRefAt = this.time;
-        loss[j] += lb;
-        loss[i] += la;
-        gainsFrom.push({ victim: j, attacker: i, amount: lb, x: cxp, y: cyp });
-        gainsFrom.push({ victim: i, attacker: j, amount: la, x: cxp, y: cyp });
+        const x = a.x + nx * (a.radius - overlap / 2), y = a.y + ny * (a.radius - overlap / 2);
+        cands[i].push({ j, x, y });
+        cands[j].push({ j: i, x, y });
       }
     }
-    if (!gainsFrom.length) {
+    for (const k of this.contactSince.keys()) if (!seen.has(k)) this.contactSince.delete(k);
+
+    // One mouth at a time: each ball damages only its target (kept until it dies or contact breaks;
+    // otherwise the contact that has overlapped longest). Digesting balls deal no damage.
+    const since = (a: Ball, b: Ball) => this.contactSince.get(a.id < b.id ? `${a.id}:${b.id}` : `${b.id}:${a.id}`) ?? this.time;
+    const hits: { victim: number; attacker: number; x: number; y: number }[] = [];
+    for (let i = 0; i < n; i++) {
+      const a = balls[i];
+      const list = cands[i];
+      if (!list.length || a.digestUntil > this.time) {
+        a.mouthId = 0;
+        continue;
+      }
+      let pick = list.find((cd) => balls[cd.j].id === a.mouthId);
+      if (!pick) {
+        for (const cd of list) {
+          if (!pick) pick = cd;
+          else {
+            const s1 = since(a, balls[cd.j]), s0 = since(a, balls[pick.j]);
+            if (s1 < s0 || (s1 === s0 && balls[cd.j].id < balls[pick.j].id)) pick = cd;
+          }
+        }
+      }
+      a.mouthId = balls[pick!.j].id;
+      hits.push({ victim: pick!.j, attacker: i, x: pick!.x, y: pick!.y });
+    }
+    if (!hits.length) {
       for (const b of balls) this.constrain(b);
       return;
+    }
+
+    // B.loss = min(B.mass, rate * min(A.mass, maxAttackerRatio * B.ref) * dt). B.ref: B's mass when the fight started.
+    const refOf = (b: Ball) =>
+      b.contactRefAt >= this.time - 1.5 * dt ? Math.max(b.contactRef, b.massBefore) : b.massBefore;
+    const loss = new Float64Array(n);
+    const amounts: number[] = [];
+    for (const h of hits) {
+      const a = balls[h.attacker], b = balls[h.victim];
+      const ref = refOf(b);
+      const l = Math.min(b.massBefore, c.rate * Math.min(a.massBefore, c.maxAttackerRatio * ref) * dt);
+      amounts.push(l);
+      loss[h.victim] += l;
+    }
+    for (const h of hits) {
+      const b = balls[h.victim];
+      b.contactRef = refOf(b);
+      b.contactRefAt = this.time;
     }
     // Clamp total loss per ball to its mass (several attackers at once).
     const scale = new Float64Array(n);
     for (let i = 0; i < n; i++) scale[i] = loss[i] > balls[i].massBefore ? balls[i].massBefore / loss[i] : 1;
     const biggest = new Float64Array(n);
-    for (const g of gainsFrom) {
+    hits.forEach((g, k) => {
       const v = balls[g.victim], a = balls[g.attacker];
-      const amt = g.amount * scale[g.victim];
-      if (amt <= 0) continue;
+      const amt = amounts[k] * scale[g.victim];
+      if (amt <= 0) return;
       v.mass -= amt;
       a.mass += amt * c.gainFraction;
       v.spillAcc += amt * (1 - c.gainFraction);
@@ -868,10 +965,11 @@ export class Sim {
       if (amt > biggest[g.victim]) {
         biggest[g.victim] = amt;
         v.lastDamagerOwner = a.ownerId;
+        v.lastDamagerBall = a.id;
         v.lastDamagedAt = this.time;
         v.swallowerId = a.massBefore > v.massBefore ? a.id : 0;
       }
-    }
+    });
     for (const b of balls) {
       if (b.mass < 0) b.mass = 0;
       b.radius = this.radiusFor(b.mass);
@@ -1023,6 +1121,13 @@ export class Sim {
       this.removeBall(b);
       const final = this.ballsOf(b.ownerId).length === 0;
       const killer = b.lastDamagerOwner && this.time - b.lastDamagedAt < 0.5 ? b.lastDamagerOwner : null;
+      if (killer) {
+        const eater = this.ballById(b.lastDamagerBall);
+        if (eater) {
+          eater.digestUntil = this.time + this.cfg.contact.digestSec;
+          eater.mouthId = 0;
+        }
+      }
       this.emit({
         type: 'eaten', ballId: b.id, ownerId: b.ownerId, killerOwner: killer,
         x: b.x, y: b.y, radius: this.radiusFor(b.massBefore), mass: Math.max(b.massBefore, b.mass), final,

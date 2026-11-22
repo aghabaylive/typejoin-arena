@@ -8,7 +8,8 @@
     "dev": "concurrently -k -n bridge,game -c magenta,cyan \"npm:dev -w bridge\" \"npm:dev -w game\"",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "build": "npm run build -w game"
+    "build": "npm run build -w game",
+    "sim:balance": "npm run sim:balance -w game --"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",

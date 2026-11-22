@@ -1,0 +1,57 @@
+{
+  "label": "after-mechanics",
+  "date": "2026-11-22T00:25:59.855Z",
+  "rounds": 20,
+  "seed": 1,
+  "overrides": {},
+  "results": [
+    {
+      "pool": 20,
+      "rounds": 20,
+      "topKills": [
+        57.5,
+        6,
+        3.6
+      ],
+      "topKillerShare": 0.705,
+      "medianNonGifterLifeSec": 7.7,
+      "p25NonGifterLifeSec": 4.8,
+      "kingChangesPerRound": 5.5,
+      "lowestPellets": 5,
+      "avgKillsPerRound": 81.5,
+      "avgQueuePeak": 0
+    },
+    {
+      "pool": 50,
+      "rounds": 20,
+      "topKills": [
+        75.5,
+        11.1,
+        8.1
+      ],
+      "topKillerShare": 0.466,
+      "medianNonGifterLifeSec": 8.7,
+      "p25NonGifterLifeSec": 5,
+      "kingChangesPerRound": 7.05,
+      "lowestPellets": 5,
+      "avgKillsPerRound": 162,
+      "avgQueuePeak": 0
+    },
+    {
+      "pool": 100,
+      "rounds": 20,
+      "topKills": [
+        100.1,
+        19.6,
+        12.5
+      ],
+      "topKillerShare": 0.322,
+      "medianNonGifterLifeSec": 8.2,
+      "p25NonGifterLifeSec": 5,
+      "kingChangesPerRound": 8.35,
+      "lowestPellets": 5,
+      "avgKillsPerRound": 311,
+      "avgQueuePeak": 40
+    }
+  ]
+}

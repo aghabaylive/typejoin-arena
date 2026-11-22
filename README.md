@@ -24,6 +24,15 @@ For OBS, add a Browser Source at 1080x1920 pointing at the game URL.
 4. During play, fire a Black Hole and a few Spike Shots by hand.
 5. Each new round needs fresh joins. The background join rate covers this, or click **All fake viewers type join again**.
 
+## Balance harness
+
+```bash
+npm run sim:balance                       # 20 rounds x viewer pools 20/50/100, headless
+npm run sim:balance -- --label try1 --set contact.rate=0.2 --set ball.decayPerSec=0.02
+```
+
+Prints a table and saves JSON to `docs/balance/<label>.json`. See `docs/balance/README.md` for the viewer model and the latest results.
+
 ## Tests
 
 ```bash
@@ -62,7 +71,11 @@ game/    Vite + PixiJS v8
 - During the join window, balls move and eat pellets but cannot damage each other. Abilities bought then are held and fire when play starts. Their mass is added immediately.
 - A gift sent during the 5 s rejoin cooldown is queued. The ball auto-spawns when the cooldown ends, then the gift is applied. Gifts sent during the results screen are applied at the start of the next round, so no gift is ever lost. In both cases a toast under the top bar confirms it (e.g. "@name: Shield ready next round").
 - Gifts give 5 mass per coin.
-- Contact damage: `B.loss = min(B.mass, 0.6 * min(A.mass, 4 * B.ref) * dt)`, where `B.ref` is B's mass when the fight started (held while contact continues). Using the start-of-fight mass keeps the drain linear, so even a huge ball needs about 0.4 s to finish a fresh ball; a cap based on B's *current* mass would decay exponentially and never quite finish. While a bigger ball eats a smaller one, the victim is drawn being pulled into the eater's center.
+- Contact damage: `B.loss = min(B.mass, rate * min(A.mass, 4 * B.ref) * dt)` with `rate` 0.15, where `B.ref` is B's mass when the fight started (held while contact continues). Using the start-of-fight mass keeps the drain linear, so even a huge ball needs about 1.7 s (`1 / (rate * 4)`) to finish a fresh ball; a cap based on B's *current* mass would decay exponentially and never quite finish. While a bigger ball eats a smaller one, the victim is drawn being pulled into the eater's center.
+- One mouth at a time: a ball damages only one victim, the contact it has overlapped longest, and keeps it until it dies or contact breaks. Its other contacts only push. After a kill the eater digests for 1.5 s: it deals no damage but takes damage normally. Split pieces are separate balls, so each piece has its own mouth.
+- Alive cap: at most 60 real players have balls. Further joins wait in a FIFO queue, shown in the top bar ("Queue: N", then the next 3 names in turn). A freed slot spawns the next in line. A gift from a queued (or not yet joined) viewer moves them to the front and applies when they spawn. Players still queued at the end of a round spawn first in the next one.
+- Storm: Magnet and Black Hole ranges scale with the safe radius (`range * safeRadius / arenaRadius`). Pellets respawn only inside the safe zone, at up to 300/s.
+- Mass decay above 500: 1 %/s.
 - Crowding: when all balls together cover more than 40 % of the arena, every radius shrinks by the same factor (smoothly, never below 0.5x). Rules use mass; only drawn and collision size change.
 - Pellet target = 150 + 2 per real player in the arena, max 400.
 - Shield and Magnet extend per unit, capped at 60 s. Dash extends per unit, capped at 10 s. Black hole gives 5 s for the first unit and +2 s per extra unit, capped at 10 s.

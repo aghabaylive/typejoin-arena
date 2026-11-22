@@ -1,0 +1,57 @@
+{
+  "label": "before",
+  "date": "2026-11-22T00:24:13.901Z",
+  "rounds": 20,
+  "seed": 1,
+  "overrides": {},
+  "results": [
+    {
+      "pool": 20,
+      "rounds": 20,
+      "topKills": [
+        65.8,
+        9.1,
+        5.2
+      ],
+      "topKillerShare": 0.688,
+      "medianNonGifterLifeSec": 6.7,
+      "p25NonGifterLifeSec": 4.3,
+      "kingChangesPerRound": 6.1,
+      "lowestPellets": 2,
+      "avgKillsPerRound": 95.5,
+      "avgQueuePeak": 0
+    },
+    {
+      "pool": 50,
+      "rounds": 20,
+      "topKills": [
+        79.9,
+        18.1,
+        11.1
+      ],
+      "topKillerShare": 0.46,
+      "medianNonGifterLifeSec": 6.6,
+      "p25NonGifterLifeSec": 4.2,
+      "kingChangesPerRound": 8.1,
+      "lowestPellets": 2,
+      "avgKillsPerRound": 173.8,
+      "avgQueuePeak": 0
+    },
+    {
+      "pool": 100,
+      "rounds": 20,
+      "topKills": [
+        110.8,
+        28.1,
+        17.4
+      ],
+      "topKillerShare": 0.348,
+      "medianNonGifterLifeSec": 6,
+      "p25NonGifterLifeSec": 3.8,
+      "kingChangesPerRound": 10.15,
+      "lowestPellets": 2,
+      "avgKillsPerRound": 318.4,
+      "avgQueuePeak": 0
+    }
+  ]
+}

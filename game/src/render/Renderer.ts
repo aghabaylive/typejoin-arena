@@ -140,7 +140,7 @@ export class Renderer {
         break;
       }
       case 'giftQueued':
-        this.toasts.add(`@${e.nickname}: ${e.what} ready ${e.when === 'nextRound' ? 'next round' : 'on respawn'}`);
+        this.toasts.add(`@${e.nickname}: ${e.what} ready ${e.when === 'nextRound' ? 'next round' : e.when === 'spawn' ? 'on spawn' : 'on respawn'}`);
         break;
       case 'feast':
         if (e.active) {
@@ -200,7 +200,7 @@ export class Renderer {
         const n = Math.random() < dt * 40 ? 2 : 0;
         for (let i = 0; i < n; i++) {
           const a = Math.random() * Math.PI * 2;
-          const r = CONFIG.abilities.blackHole.range + b.radius;
+          const r = sim.fieldRange(CONFIG.abilities.blackHole.range) + b.radius;
           const x = b.x + Math.cos(a) * r, y = b.y + Math.sin(a) * r;
           const sp = r / 0.6;
           this.particles.spawn(this.tex.softDot, x, y, { vx: -Math.cos(a) * sp + Math.sin(a) * 120, vy: -Math.sin(a) * sp - Math.cos(a) * 120, tint: 0xd2a8ff, scale: 0.4, life: 0.6, drag: 0 });

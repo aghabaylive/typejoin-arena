@@ -1,0 +1,60 @@
+{
+  "label": "after",
+  "date": "2026-11-22T00:33:15.461Z",
+  "rounds": 20,
+  "seed": 1,
+  "overrides": {},
+  "results": [
+    {
+      "pool": 20,
+      "rounds": 20,
+      "topKills": [
+        23.3,
+        4.5,
+        3.5
+      ],
+      "topKillerShare": 0.538,
+      "medianNonGifterLifeSec": 32.8,
+      "p25NonGifterLifeSec": 11.5,
+      "kingChangesPerRound": 5.9,
+      "lowestPellets": 5,
+      "lowestPelletsAt": "storm 25s left, safe r 273, 11 balls",
+      "avgKillsPerRound": 43.3,
+      "avgQueuePeak": 0
+    },
+    {
+      "pool": 50,
+      "rounds": 20,
+      "topKills": [
+        28.8,
+        7.8,
+        6.3
+      ],
+      "topKillerShare": 0.285,
+      "medianNonGifterLifeSec": 41.4,
+      "p25NonGifterLifeSec": 13.3,
+      "kingChangesPerRound": 4.75,
+      "lowestPellets": 7,
+      "lowestPelletsAt": "storm 9s left, safe r 213, 21 balls",
+      "avgKillsPerRound": 100.9,
+      "avgQueuePeak": 0
+    },
+    {
+      "pool": 100,
+      "rounds": 20,
+      "topKills": [
+        25.9,
+        13.2,
+        10.3
+      ],
+      "topKillerShare": 0.136,
+      "medianNonGifterLifeSec": 34,
+      "p25NonGifterLifeSec": 14,
+      "kingChangesPerRound": 9.65,
+      "lowestPellets": 13,
+      "lowestPelletsAt": "storm 8s left, safe r 210, 29 balls",
+      "avgKillsPerRound": 189.5,
+      "avgQueuePeak": 40
+    }
+  ]
+}

@@ -3,7 +3,7 @@ import { CONFIG } from '../config';
 import type { Sim } from '../sim/Sim';
 import type { AvatarCache } from './avatars';
 import type { Textures } from './textures';
-import { formatMass, formatTime, label } from './text';
+import { clip, formatMass, formatTime, label } from './text';
 
 const RANK_COLORS = [0xffc83d, 0xd9e2f2, 0xd08a4a];
 
@@ -13,6 +13,7 @@ export class Hud {
   private timer: Text;
   private hint: Text;
   private lastPhase = '';
+  private hintColor = 0xffe066;
   private feastBar = new Graphics();
   private feastText: Text;
   private slots: { av: Sprite; ring: Sprite; mass: Text; rank: Text; owner: string | null; ver: number }[] = [];
@@ -106,9 +107,20 @@ export class Hud {
       : `♥ FEAST ${Math.floor(sim.feastProgress)}/${need}`;
     if (this.feastText.text !== feastLabel) this.feastText.text = feastLabel;
 
-    const hint = phase === 'join' ? 'TYPE  join  NOW!' : phase === 'storm' ? 'STORM! to center' : phase === 'results' ? 'next round soon' : 'type join to play';
+    // Queue indicator (alive cap reached): cycles "Queue: N" and the next 3 names in the hint slot.
+    const q = sim.queueView();
+    let hint = phase === 'join' ? 'TYPE  join  NOW!' : phase === 'storm' ? 'STORM! to center' : phase === 'results' ? 'next round soon' : 'type join to play';
+    if (q.length > 0) {
+      const frames = [`Queue: ${q.length}`, ...q.next.map((n, i) => `${i + 1}. ${clip(n, 11)}`)];
+      hint = frames[Math.floor(now / 1.6) % frames.length];
+    }
     if (this.hint.text !== hint) this.hint.text = hint;
-    this.hint.scale.set(phase === 'join' ? 1 + 0.06 * Math.sin(now * 8) : 1);
+    const hintColor = q.length > 0 ? 0x9fdcff : 0xffe066;
+    if (hintColor !== this.hintColor) {
+      this.hint.style.fill = hintColor;
+      this.hintColor = hintColor;
+    }
+    this.hint.scale.set(phase === 'join' && q.length === 0 ? 1 + 0.06 * Math.sin(now * 8) : 1);
   }
 }
 

@@ -44,6 +44,12 @@ export interface Ball {
   contactRefAt: number;
   /** Ball id of the bigger ball currently eating this one (0 = none). Drives the swallow animation. */
   swallowerId: number;
+  /** Ball id this ball is currently eating (one mouth at a time; 0 = none). */
+  mouthId: number;
+  /** After a kill the ball digests until this time: it deals no damage (takes damage normally). */
+  digestUntil: number;
+  /** Ball id of the last ball that damaged this one most (gets the digestion on a kill). */
+  lastDamagerBall: number;
 }
 
 export interface QueuedGift {
@@ -151,5 +157,5 @@ export type SimEvent =
   | { type: 'kingChanged'; from: string | null; to: string | null }
   | { type: 'feast'; active: boolean }
   | { type: 'gift'; ownerId: string; mass: number; giftName?: string }
-  | { type: 'giftQueued'; ownerId: string; nickname: string; what: string; when: 'nextRound' | 'respawn' }
+  | { type: 'giftQueued'; ownerId: string; nickname: string; what: string; when: 'nextRound' | 'respawn' | 'spawn' }
   | { type: 'results'; results: RoundResults };

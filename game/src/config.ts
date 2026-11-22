@@ -30,7 +30,7 @@ export const CONFIG = {
     speedBase: 260,
     speedExp: -0.15, // speed = speedBase * mass^speedExp
     decayAboveMass: 500,
-    decayPerSec: 0.001, // 0.1 % of mass / s
+    decayPerSec: 0.01, // 1 % of mass / s (tuned with npm run sim:balance; was 0.1 %)
     /** Steering responsiveness (1/s). Higher = snappier turns. */
     accel: 6,
     spawnProtectionSec: 3,
@@ -67,10 +67,13 @@ export const CONFIG = {
   contact: {
     /**
      * Each tick: B.loss = min(B.mass, rate * min(A.mass, maxAttackerRatio * B.ref) * dt), where B.ref is
-     * B's mass when the current fight started. With rate 0.6 and ratio 4 a kill takes at least ~0.42 s.
+     * B's mass when the current fight started. A kill takes at least 1 / (rate * ratio) s (~1.7 s).
+     * Tuned with `npm run sim:balance` (was 0.6). See docs/balance/.
      */
-    rate: 0.6,
+    rate: 0.15,
     maxAttackerRatio: 4,
+    /** After a kill the eater deals no damage for this long (it still takes damage). */
+    digestSec: 1.5,
     /** Fraction of the loss that the attacker gains. The rest spills as pellets. */
     gainFraction: 0.5,
     /** Soft separation strength (fraction of overlap resolved per second). */
@@ -90,7 +93,7 @@ export const CONFIG = {
     radius: 7,
     /** Hard cap including spill pellets; beyond it spill mass merges into existing pellets. */
     maxTotal: 700,
-    respawnPerSec: 150,
+    respawnPerSec: 300,
   },
 
   spikes: {
@@ -167,6 +170,9 @@ export const CONFIG = {
     /** How fast the scale follows its target (1/s, exponential smoothing). */
     smoothPerSec: 2,
   },
+
+  /** Alive cap: at most maxAlive real players have balls; further joins wait in a FIFO queue. */
+  queue: { maxAlive: 60, showNext: 3 },
 
   /** Toast shown under the top bar when a gift is queued (rejoin cooldown / results screen). */
   toast: { sec: 2.8, maxVisible: 3 },

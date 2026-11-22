@@ -40,14 +40,15 @@ function freeze(sim: Sim) {
 }
 
 describe('contact rule', () => {
-  it('big vs small: each loses 0.6 * min(other mass, 4 * own mass) * dt, gains half of what it takes', () => {
+  it('one mouth each: big vs small both bite, loss = rate * min(other mass, 4 * own ref) * dt, gain half', () => {
     const sim = quietSim();
     const a = sim.debugSpawn({ ownerId: 'A', mass: 1000, x: cx, y: cy });
     const b = sim.debugSpawn({ ownerId: 'B', mass: 100, x: cx + 60, y: cy });
     freeze(sim);
     sim.contacts(DT);
-    const lossB = Math.min(100, 0.6 * Math.min(1000, 4 * 100) * DT); // 4 (capped attacker mass)
-    const lossA = Math.min(1000, 0.6 * 100 * DT); // 1
+    const R = CONFIG.contact.rate;
+    const lossB = Math.min(100, R * Math.min(1000, 4 * 100) * DT); // capped attacker mass
+    const lossA = Math.min(1000, R * 100 * DT);
     expect(b.mass).toBeCloseTo(100 - lossB + 0.5 * lossA, 9);
     expect(a.mass).toBeCloseTo(1000 - lossA + 0.5 * lossB, 9);
     // The other half spills as pellets (conserved once flushed).
@@ -61,25 +62,26 @@ describe('contact rule', () => {
     freeze(sim);
     sim.contacts(DT);
     expect(a.mass).toBeCloseTo(b.mass, 9);
-    expect(a.mass).toBeCloseTo(200 - 0.6 * 200 * DT * 0.5, 9);
+    expect(a.mass).toBeCloseTo(200 - CONFIG.contact.rate * 200 * DT * 0.5, 9);
   });
 
-  it('attacker mass is capped at 4x the victim: a huge ball needs >= ~0.4 s to kill a new ball', () => {
+  it('attacker mass is capped at 4x the victim: even a huge ball needs >= 1 / (rate * 4) s to kill', () => {
+    const minKill = 1 / (CONFIG.contact.rate * CONFIG.contact.maxAttackerRatio);
     for (const huge of [500, 25000, 1e6]) {
       const sim = quietSim();
       sim.debugSpawn({ ownerId: 'A', mass: huge, x: cx, y: cy });
       const b = sim.debugSpawn({ ownerId: 'B', mass: 20, x: cx + 5, y: cy });
       freeze(sim);
       let ticks = 0;
-      while (sim.ballsOf('B').length && ticks < 600) {
+      while (sim.ballsOf('B').length && ticks < 1200) {
         b.x = cx + 5; // stay in contact
         b.y = cy;
         sim.step(DT);
         ticks++;
       }
       expect(sim.ballsOf('B').length).toBe(0);
-      expect(ticks * DT).toBeGreaterThanOrEqual(0.4);
-      expect(ticks * DT).toBeLessThan(0.7); // linear drain: the cap uses the mass at fight start
+      expect(ticks * DT).toBeGreaterThanOrEqual(minKill * 0.95);
+      expect(ticks * DT).toBeLessThan(minKill * 1.5); // linear drain: the cap uses the mass at fight start
       expect(sim.players.get('A')!.kills).toBe(1);
     }
   });
@@ -135,7 +137,11 @@ describe('eating and revenge', () => {
     b.x = cx + 20;
     b.y = cy;
     freeze(sim);
-    for (let i = 0; i < 90 && sim.ballsOf('B').length; i++) sim.step(DT);
+    for (let i = 0; i < 400 && sim.ballsOf('B').length; i++) {
+      b.x = cx + 20; // keep the victim in contact (push separation would free it)
+      b.y = cy;
+      sim.step(DT);
+    }
     expect(sim.ballsOf('B').length).toBe(0);
     const eaten = sim.drainEvents().find((e) => e.type === 'eaten');
     expect(eaten && eaten.type === 'eaten' && eaten.killerOwner).toBe('A');
@@ -410,6 +416,173 @@ describe('round loop', () => {
     for (let i = 5; i < 12; i++) sim.handleEvent(ev({ type: 'join', userId: `r${i}`, nickname: `R${i}` }));
     expect(sim.balls.filter((b) => b.isBot).length).toBe(0);
     expect(sim.balls.length).toBe(12);
+  });
+});
+
+describe('one mouth at a time + digestion', () => {
+  /** Hold balls in place (push separation would move them apart). */
+  const hold = (sim: Sim, spots: [ReturnType<Sim['debugSpawn']>, number, number][]) => {
+    for (const [b, x, y] of spots) if (sim.ballById(b.id)) {
+      b.x = x;
+      b.y = y;
+    }
+    freeze(sim);
+  };
+
+  it('damages only the longest-overlapping contact; others only push', () => {
+    const sim = quietSim();
+    const a = sim.debugSpawn({ ownerId: 'A', mass: 1000, x: cx, y: cy });
+    const b = sim.debugSpawn({ ownerId: 'B', mass: 20, x: cx + 40, y: cy });
+    freeze(sim);
+    sim.contacts(DT); // A-B overlap starts first
+    const c = sim.debugSpawn({ ownerId: 'C', mass: 20, x: cx - 40, y: cy });
+    for (let i = 0; i < 5; i++) {
+      hold(sim, [[a, cx, cy], [b, cx + 40, cy], [c, cx - 40, cy]]);
+      sim.step(DT);
+    }
+    expect(a.mouthId).toBe(b.id);
+    expect(b.mass).toBeLessThan(20);
+    expect(c.mass).toBeGreaterThanOrEqual(20); // C is not eaten (it even gains by biting A)
+  });
+
+  it('keeps the target until contact breaks, then switches', () => {
+    const sim = quietSim();
+    const a = sim.debugSpawn({ ownerId: 'A', mass: 1000, x: cx, y: cy });
+    const b = sim.debugSpawn({ ownerId: 'B', mass: 900, x: cx + 60, y: cy }); // survives a few ticks
+    freeze(sim);
+    sim.contacts(DT);
+    const c = sim.debugSpawn({ ownerId: 'C', mass: 20, x: cx - 40, y: cy });
+    hold(sim, [[a, cx, cy], [b, cx + 60, cy], [c, cx - 40, cy]]);
+    sim.step(DT);
+    expect(a.mouthId).toBe(b.id);
+    hold(sim, [[a, cx, cy], [b, cx + 280, cy], [c, cx - 40, cy]]); // B leaves (no overlap at 280)
+    sim.step(DT);
+    expect(a.mouthId).toBe(c.id);
+  });
+
+  it('after a kill the eater digests: deals no damage for digestSec but still takes damage', () => {
+    const sim = quietSim();
+    const a = sim.debugSpawn({ ownerId: 'A', mass: 1000, x: cx, y: cy });
+    const b = sim.debugSpawn({ ownerId: 'B', mass: 20, x: cx + 40, y: cy });
+    freeze(sim);
+    sim.contacts(DT);
+    const c = sim.debugSpawn({ ownerId: 'C', mass: 20, x: cx - 40, y: cy });
+    let t = 0;
+    while (sim.ballsOf('B').length && t++ < 400) {
+      hold(sim, [[a, cx, cy], [b, cx + 40, cy], [c, cx - 40, cy]]);
+      sim.step(DT);
+    }
+    expect(sim.ballsOf('B').length).toBe(0);
+    const killedAt = sim.time;
+    expect(a.digestUntil).toBeCloseTo(killedAt + CONFIG.contact.digestSec, 6);
+    const cMass = c.mass, aMass = a.mass;
+    while (sim.time < killedAt + CONFIG.contact.digestSec - 2 * DT) {
+      hold(sim, [[a, cx, cy], [c, cx - 40, cy]]);
+      sim.step(DT);
+    }
+    expect(c.mass).toBeGreaterThan(cMass); // C was not damaged, it kept biting A
+    expect(a.mass).toBeLessThan(aMass); // A took damage while digesting
+    for (let i = 0; i < 10; i++) {
+      hold(sim, [[a, cx, cy], [c, cx - 40, cy]]);
+      sim.step(DT);
+    }
+    const cBefore = c.mass;
+    for (let i = 0; i < 10; i++) {
+      hold(sim, [[a, cx, cy], [c, cx - 40, cy]]);
+      sim.step(DT);
+    }
+    expect(a.mouthId).toBe(c.id);
+    expect(c.mass).toBeLessThan(cBefore); // digestion over: A eats again
+  });
+});
+
+describe('alive cap + queue', () => {
+  let sim: Sim;
+  const gift = (userId: string, units: number, giftId: number = PLACEHOLDER_GIFT_IDS.shield, coinsPerUnit = 30) =>
+    sim.handleEvent(ev({ type: 'gift', userId, nickname: userId, giftId, giftName: 'g', coinsPerUnit, units } as never));
+  const join = (userId: string) => sim.handleEvent(ev({ type: 'join', userId, nickname: userId }));
+
+  it('joins beyond the cap wait in FIFO order; a freed slot spawns the next', () => {
+    sim = quietSim({ queue: { maxAlive: 2 } });
+    for (const u of ['u1', 'u2', 'u3', 'u4']) join(u);
+    expect(sim.balls.map((b) => b.ownerId)).toEqual(['u1', 'u2']);
+    expect(sim.queueView()).toEqual({ length: 2, next: ['u3', 'u4'] });
+    join('u3'); // typing join again keeps the place
+    expect(sim.joinQueue).toEqual(['u3', 'u4']);
+    sim.ballsOf('u1')[0].mass = 0;
+    sim.step(DT); // u1 removed
+    sim.step(DT); // slot freed -> u3 spawns
+    expect(sim.ballsOf('u3').length).toBe(1);
+    expect(sim.joinQueue).toEqual(['u4']);
+  });
+
+  it('a gift from a queued user moves them to the front and applies when they spawn (never lost)', () => {
+    sim = quietSim({ queue: { maxAlive: 1 } });
+    for (const u of ['u1', 'u2', 'u3']) join(u);
+    sim.drainEvents();
+    gift('u3', 2);
+    gift('u3', 1);
+    expect(sim.joinQueue).toEqual(['u3', 'u2']);
+    const toast = sim.drainEvents().find((e) => e.type === 'giftQueued');
+    expect(toast && toast.type === 'giftQueued' && toast.when).toBe('spawn');
+    // A gift from someone not even queued yet also goes to the front.
+    gift('u4', 1, PLACEHOLDER_GIFT_IDS.rose, 1);
+    expect(sim.joinQueue).toEqual(['u4', 'u3', 'u2']);
+    sim.ballsOf('u1')[0].mass = 0;
+    sim.step(DT);
+    sim.step(DT);
+    expect(sim.ballsOf('u4').length).toBe(1);
+    expect(sim.ownerMass('u4')).toBeCloseTo(20 + 1 * 5, 6);
+    sim.ballsOf('u4')[0].mass = 0;
+    sim.step(DT);
+    sim.step(DT);
+    expect(sim.ballsOf('u3').length).toBe(1);
+    expect(sim.ownerMass('u3')).toBeCloseTo(20 + 3 * 30 * 5, 6);
+    expect(sim.players.get('u3')!.shieldUntil).toBeGreaterThan(sim.time + 25); // both shields: 30 s
+  });
+
+  it('queued players (and their gifts) carry into the next round', () => {
+    sim = quietSim({ queue: { maxAlive: 1 } });
+    join('u1');
+    join('u2');
+    gift('u3', 1);
+    expect(sim.joinQueue).toEqual(['u3', 'u2']);
+    sim.debugSetPhase('results');
+    for (let i = 0; i < CONFIG.round.resultsSec * 60 + 2; i++) sim.step(DT);
+    expect(sim.phase).toBe('join');
+    expect(sim.ballsOf('u3').length).toBe(1); // gifter first
+    expect(sim.ownerMass('u3')).toBeCloseTo(20 + 30 * 5, 6);
+    expect(sim.joinQueue).toEqual(['u2']);
+  });
+});
+
+describe('storm field range', () => {
+  it('magnet and black hole ranges scale with the safe radius', () => {
+    const sim = quietSim();
+    expect(sim.fieldRange(350)).toBeCloseTo(350, 9);
+    sim.debugSetPhase('storm');
+    for (let i = 0; i < CONFIG.round.stormSec * 60 - 1; i++) sim.step(DT);
+    const k = sim.safeRadius() / CONFIG.arena.radius;
+    expect(k).toBeCloseTo(0.5, 2);
+    expect(sim.fieldRange(CONFIG.abilities.blackHole.range)).toBeCloseTo(CONFIG.abilities.blackHole.range * k, 9);
+  });
+
+  it('a pellet beyond the shrunk range is no longer pulled', () => {
+    const pull = (storm: boolean) => {
+      const sim = quietSim();
+      if (storm) {
+        sim.debugSetPhase('storm');
+        for (let i = 0; i < CONFIG.round.stormSec * 60 - 1; i++) sim.step(DT);
+      }
+      sim.debugSpawn({ ownerId: 'h', mass: 100, x: cx, y: cy });
+      sim.players.get('h')!.blackHoleUntil = sim.time + 5;
+      sim.pellets.push({ id: 99999, x: cx + 250, y: cy, vx: 0, vy: 0, value: 1, kind: 'normal', born: 0, eaten: false });
+      freeze(sim);
+      sim.step(DT);
+      return cx + 250 - sim.pellets.find((p) => p.id === 99999)!.x;
+    };
+    expect(pull(false)).toBeGreaterThan(1);
+    expect(pull(true)).toBe(0);
   });
 });
 
