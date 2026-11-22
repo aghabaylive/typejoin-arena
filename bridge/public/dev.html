@@ -22,9 +22,14 @@
   input[type=number] { width: 80px; }
   input[type=range] { flex: 1; min-width: 140px; }
   label.slider { display:grid; grid-template-columns: 120px 1fr 60px; gap: 8px; align-items:center; margin-bottom: 8px; }
-  .gifts { display:grid; grid-template-columns: repeat(auto-fill, minmax(140px,1fr)); gap: 6px; }
-  .gifts button { text-align:left; background:#2a3566; }
+  .gifts { display:grid; grid-template-columns: repeat(auto-fill, minmax(150px,1fr)); gap: 6px; }
+  .gifts.all { max-height: 340px; overflow-y: auto; padding-right: 4px; }
+  .gifts button { text-align:left; background:#2a3566; display:flex; gap:8px; align-items:center; }
+  .gifts button.ability { outline: 2px solid #ffc83d; }
+  .gifts img { width: 36px; height: 36px; object-fit: contain; flex: none; }
+  .gifts .ph { width: 36px; height: 36px; border-radius: 8px; background:#3a4680; flex:none; display:grid; place-items:center; }
   .gifts small { display:block; color: var(--dim); font-weight: 400; }
+  .gifts b.ab { color: #ffc83d; }
   #log { font: 12px ui-monospace, monospace; max-height: 340px; overflow:auto; white-space: pre; color: var(--dim); }
   .hint { color: var(--dim); font-size: 12px; }
 </style>
@@ -73,7 +78,11 @@
     <h2>Gifts</h2>
     <div class="row"><label>Units</label><input id="units" type="number" value="1" min="1" max="99" />
       <span class="hint">from the acting user (or random)</span></div>
-    <div id="gifts" class="gifts"></div>
+    <p class="hint">Ability gifts (shared/gift-map.json):</p>
+    <div id="abilityGifts" class="gifts"></div>
+    <div class="row" style="margin-top:8px"><label>Filter</label><input id="giftFilter" placeholder="name, id or coins" />
+      <span class="hint" id="giftCount"></span></div>
+    <div id="gifts" class="gifts all"></div>
   </section>
 
   <section>
@@ -112,6 +121,44 @@
   for (const id of ['joinPerMin', 'likesPerSec', 'giftsPerMin']) {
     document.getElementById(id).addEventListener('input', (e) => setRates({ [id]: +e.target.value }, false));
   }
+  // Gift buttons come from shared/gift-catalog.json (real ids, names, prices). Text is set via textContent.
+  function giftButton(gift) {
+    const b = document.createElement('button');
+    if (gift.ability) b.className = 'ability';
+    let pic;
+    if (gift.icon) { pic = document.createElement('img'); pic.loading = 'lazy'; pic.src = '/' + gift.icon; pic.alt = ''; }
+    else { pic = document.createElement('span'); pic.className = 'ph'; pic.textContent = '?'; }
+    const txt = document.createElement('span');
+    const name = document.createElement('span'); name.textContent = gift.giftName;
+    const small = document.createElement('small');
+    small.textContent = `${gift.coinsPerUnit} coins · id ${gift.giftId}${gift.streakable ? ' · streak' : ''}`;
+    txt.append(name);
+    if (gift.ability) { const ab = document.createElement('b'); ab.className = 'ab'; ab.textContent = ' → ' + gift.ability; txt.append(ab); }
+    txt.append(small);
+    b.append(pic, txt);
+    b.onclick = () => cmd({ cmd: 'gift', giftId: gift.giftId, units: +val('units'), userId: val('user') });
+    return b;
+  }
+  function renderGifts(gifts) {
+    const ab = document.getElementById('abilityGifts');
+    for (const gift of gifts.filter((g) => g.ability)) ab.appendChild(giftButton(gift));
+    const all = document.getElementById('gifts');
+    const buttons = gifts.map((g) => [g, giftButton(g)]);
+    for (const [, b] of buttons) all.appendChild(b);
+    const filter = document.getElementById('giftFilter');
+    const apply = () => {
+      const q = filter.value.trim().toLowerCase();
+      let n = 0;
+      for (const [g, b] of buttons) {
+        const show = !q || g.giftName.toLowerCase().includes(q) || String(g.giftId) === q || String(g.coinsPerUnit) === q;
+        b.style.display = show ? '' : 'none';
+        if (show) n++;
+      }
+      document.getElementById('giftCount').textContent = `${n} of ${gifts.length} gifts`;
+    };
+    filter.addEventListener('input', apply);
+    apply();
+  }
   let first = true, lastUserCount = -1;
   async function refresh() {
     let s;
@@ -123,13 +170,7 @@
     if (first) {
       first = false;
       for (const k of Object.keys(s.rates)) { document.getElementById(k).value = s.rates[k]; document.getElementById(k + 'V').textContent = s.rates[k]; }
-      const g = document.getElementById('gifts');
-      for (const gift of s.gifts) {
-        const b = document.createElement('button');
-        b.innerHTML = `${gift.giftName}<small>id ${gift.giftId} · ${gift.coinsPerUnit} coins${gift.streakable ? ' · streak' : ''}</small>`;
-        b.onclick = () => cmd({ cmd: 'gift', giftId: gift.giftId, units: +val('units'), userId: val('user') });
-        g.appendChild(b);
-      }
+      renderGifts(s.gifts);
     }
     if (s.users.length !== lastUserCount) {
       lastUserCount = s.users.length;

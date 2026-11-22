@@ -1,4 +1,4 @@
-import { PLACEHOLDER_GIFTS, findGift } from '@typejoin/shared';
+import { GIFT_ABILITIES, GIFT_MAP, devGifts, findGift } from '@typejoin/shared';
 import type { EventSource, RawSink, RawSourceEvent, RawUser } from './EventSource';
 
 const ADJ = [
@@ -11,11 +11,25 @@ const NOUN = [
 ];
 const EXTRA = ['ayla.x', 'kamran_07', 'leyla♡', 'Nurlan', 'zehra.official', 'Émile', 'sofia_l', 'Ömer'];
 
-/** Weighted random gift picker for background gifts (cheap gifts are common). */
+/**
+ * Weighted random picker for background gifts (cheap gifts are common). Same coin-tier weights as before; within a
+ * tier the weight is split over the catalog gifts in it, but ability gifts keep the full tier weight so abilities
+ * still show up as often as they did with the placeholder catalog. Gifts above 1000 coins are only picked when
+ * they are mapped to an ability.
+ */
+const tierWeight = (coins: number) => coins <= 1 ? 40 : coins <= 5 ? 22 : coins <= 10 ? 15
+  : coins <= 30 ? 12 : coins <= 100 ? 7 : coins <= 500 ? 3 : 1.5;
+const tierOf = (coins: number) => [1, 5, 10, 30, 100, 500, 1000].find((t) => coins <= t) ?? Infinity;
+const abilityIds = new Set(GIFT_ABILITIES.map((a) => GIFT_MAP[a]));
 const GIFT_WEIGHTS: Record<number, number> = {};
-for (const g of PLACEHOLDER_GIFTS) {
-  GIFT_WEIGHTS[g.giftId] = g.coinsPerUnit <= 1 ? 40 : g.coinsPerUnit <= 5 ? 22 : g.coinsPerUnit <= 10 ? 15
-    : g.coinsPerUnit <= 30 ? 12 : g.coinsPerUnit <= 100 ? 7 : g.coinsPerUnit <= 500 ? 3 : 1.5;
+{
+  const pool = devGifts().filter((g) => g.coinsPerUnit > 0 && (g.coinsPerUnit <= 1000 || abilityIds.has(g.giftId)));
+  const perTier = new Map<number, number>();
+  for (const g of pool) if (!abilityIds.has(g.giftId)) perTier.set(tierOf(g.coinsPerUnit), (perTier.get(tierOf(g.coinsPerUnit)) ?? 0) + 1);
+  for (const g of pool) {
+    const w = tierWeight(g.coinsPerUnit);
+    GIFT_WEIGHTS[g.giftId] = abilityIds.has(g.giftId) ? w : w / (perTier.get(tierOf(g.coinsPerUnit)) ?? 1);
+  }
 }
 
 export interface FakeRates {

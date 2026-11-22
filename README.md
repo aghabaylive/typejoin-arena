@@ -24,6 +24,14 @@ For OBS, add a Browser Source at 1080x1920 pointing at the game URL.
 4. During play, fire a Black Hole and a few Spike Shots by hand.
 5. Each new round needs fresh joins. The background join rate covers this, or click **All fake viewers type join again**.
 
+## Gift catalog
+
+```bash
+npm run gifts:fetch -- <tiktokUsername>   # the account must be LIVE right now
+```
+
+Reads the room's gift list and writes `shared/gift-catalog.json` (id, name, coins, imageUrl; sorted by coins). Each icon is downloaded once into `game/public/gifts/<id>.<ext>`, so the game never loads gift images from TikTok at runtime. The legend and the dev panel's gift buttons use the catalog. `tiktok-live-connector` v2 signs the gift-list request through Euler Stream, which needs a paid key (`SIGN_API_KEY`). Without a key, the script falls back to TikTok's public webcast gift-list endpoint for the same room.
+
 ## Balance harness
 
 ```bash
@@ -46,7 +54,7 @@ npm run typecheck
 ## Layout
 
 ```
-shared/  normalized event types + PLACEHOLDER gift catalog (ids shared by FakeSource and game config)
+shared/  normalized event types, gift-catalog.json (real TikTok gifts), gift-map.json (ability -> gift id)
 bridge/  Node + ws
   src/sources/EventSource.ts  EventSource interface + raw (TikTok-shaped) event types
   src/sources/FakeSource.ts   the only source for now
@@ -63,7 +71,7 @@ game/    Vite + PixiJS v8
 ### Seams for later steps
 - **TikTokSource**: implement `EventSource` (`bridge/src/sources/EventSource.ts`) and emit `RawSourceEvent`s. Gifts use TikTok's cumulative `repeatCount`/`repeatEnd`, and the normalizer turns them into deltas. Select the source in `bridge/src/index.ts` (env `EVENT_SOURCE`).
 - **Avatar proxy**: the game already loads `CONFIG.net.avatarProxy + encodeURIComponent(url)` (`http://localhost:8787/avatar?url=`). Mount the route in `bridge/src/server.ts` where marked. Any failure falls back to initials.
-- **Real gift ids**: replace the ids in `shared/src/gifts.ts`, or remap them in `CONFIG.gifts.abilities`.
+- **Gift abilities**: edit `shared/gift-map.json` (ability -> real gift id from `shared/gift-catalog.json`). A mapped id missing from the catalog logs a warning in the game console and shows a placeholder icon in the legend.
 - **Database / moderation**: the session leaderboard is `game/src/sim/leaderboard.ts` (memory only). All viewer input enters through `Sim.handleEvent`.
 
 ## Rule notes (choices made where the spec was open)

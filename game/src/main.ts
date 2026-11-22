@@ -1,4 +1,5 @@
 import { Application } from 'pixi.js';
+import { missingMappedGifts } from '@typejoin/shared';
 import { CONFIG } from './config';
 import { Sim } from './sim/Sim';
 import { Renderer } from './render/Renderer';
@@ -29,6 +30,12 @@ function fit(): void {
 }
 window.addEventListener('resize', fit);
 fit();
+
+// Mapped ability gifts that are not real catalog gifts: warn loudly (their legend row shows a placeholder icon).
+for (const m of missingMappedGifts()) {
+  console.warn(`[gifts] ${m.ability} is mapped to gift id ${m.giftId}, which is not in shared/gift-catalog.json. ` +
+    'Its legend row shows a placeholder icon. Pick a real gift id in shared/gift-map.json (run npm run gifts:fetch first).');
+}
 
 const sim = new Sim({ seed: Number(params.get('seed') ?? Date.now() % 1e9) });
 const renderer = new Renderer(app);

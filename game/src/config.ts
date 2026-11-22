@@ -2,9 +2,38 @@
  * ALL tunable numbers live here. The simulation and renderer read only from this object.
  * Units: px, seconds, mass.
  */
-import { PLACEHOLDER_GIFT_IDS } from '@typejoin/shared';
+import { GIFT_ABILITIES, GIFT_MAP, findGift, type GiftAbility } from '@typejoin/shared';
 
-export type AbilityId = 'dash' | 'shield' | 'spikeShot' | 'magnet' | 'blackHole';
+export type AbilityId = GiftAbility;
+
+/** Legend row: ability + the gift that triggers it (from shared/gift-map.json + shared/gift-catalog.json). */
+export interface LegendRow {
+  ability: AbilityId;
+  label: string;
+  color: number;
+  glyph: string;
+  giftId: number;
+  giftName: string;
+  coins: number;
+  /** Local icon (relative to game/public); empty when the gift is not in the catalog -> placeholder tile. */
+  icon: string;
+}
+
+const ABILITY_STYLE: Record<AbilityId, { label: string; color: number; glyph: string }> = {
+  dash: { label: 'Dash', color: 0x3dd6ff, glyph: '»' },
+  shield: { label: 'Shield', color: 0x3dff9b, glyph: '◈' },
+  spikeShot: { label: 'Spike shot', color: 0xff5b5b, glyph: '✸' },
+  magnet: { label: 'Magnet', color: 0xb05bff, glyph: '∩' },
+  blackHole: { label: 'Black hole', color: 0xffc83d, glyph: '●' },
+};
+
+function legendRows(): LegendRow[] {
+  return GIFT_ABILITIES.map((ability) => {
+    const giftId = GIFT_MAP[ability];
+    const g = findGift(giftId);
+    return { ability, ...ABILITY_STYLE[ability], giftId, giftName: g?.giftName ?? `#${giftId}`, coins: g?.coinsPerUnit ?? 0, icon: g?.icon ?? '' };
+  });
+}
 
 export const CONFIG = {
   sim: {
@@ -125,14 +154,8 @@ export const CONFIG = {
 
   gifts: {
     massPerCoin: 5, // mass = coinsPerUnit * units * massPerCoin
-    /** giftId -> ability. Placeholder ids shared with FakeSource. */
-    abilities: {
-      [PLACEHOLDER_GIFT_IDS.dash]: 'dash',
-      [PLACEHOLDER_GIFT_IDS.shield]: 'shield',
-      [PLACEHOLDER_GIFT_IDS.spikeShot]: 'spikeShot',
-      [PLACEHOLDER_GIFT_IDS.magnet]: 'magnet',
-      [PLACEHOLDER_GIFT_IDS.blackHole]: 'blackHole',
-    } as Record<number, AbilityId>,
+    /** giftId -> ability, from shared/gift-map.json. Every other gift only adds mass. */
+    abilities: Object.fromEntries(GIFT_ABILITIES.map((a) => [GIFT_MAP[a], a])) as Record<number, AbilityId>,
   },
 
   abilities: {
@@ -154,14 +177,8 @@ export const CONFIG = {
     blackHole: { sec: 5, secPerExtraUnit: 2, maxSec: 10, range: 350, ballMassRatio: 0.5, pelletPull: 900, ballPull: 620 },
   },
 
-  /** Gift legend rows (right side). Order = display order. */
-  legend: [
-    { ability: 'dash', label: 'Dash', giftId: PLACEHOLDER_GIFT_IDS.dash, coins: 5, color: 0x3dd6ff, glyph: '»' },
-    { ability: 'shield', label: 'Shield', giftId: PLACEHOLDER_GIFT_IDS.shield, coins: 30, color: 0x3dff9b, glyph: '◈' },
-    { ability: 'spikeShot', label: 'Spike shot', giftId: PLACEHOLDER_GIFT_IDS.spikeShot, coins: 100, color: 0xff5b5b, glyph: '✸' },
-    { ability: 'magnet', label: 'Magnet', giftId: PLACEHOLDER_GIFT_IDS.magnet, coins: 500, color: 0xb05bff, glyph: '∩' },
-    { ability: 'blackHole', label: 'Black hole', giftId: PLACEHOLDER_GIFT_IDS.blackHole, coins: 1000, color: 0xffc83d, glyph: '●' },
-  ] as { ability: AbilityId; label: string; giftId: number; coins: number; color: number; glyph: string }[],
+  /** Gift legend rows (right side), built from gift-map.json + the catalog. Order = display order. */
+  legend: legendRows(),
 
   /** Crowding: when all balls together cover more than maxAreaFrac of the arena, all radii shrink uniformly. */
   crowding: {

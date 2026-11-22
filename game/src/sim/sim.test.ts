@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { GameEvent } from '@typejoin/shared';
-import { PLACEHOLDER_GIFT_IDS } from '@typejoin/shared';
+import { GIFT_CATALOG, GIFT_MAP, PLACEHOLDER_GIFT_IDS, catalogGift, catalogGiftByName, missingMappedGifts } from '@typejoin/shared';
 import { Sim } from './Sim';
 import { CONFIG, crowdScaleTarget, pelletTarget, radiusForMass } from '../config';
 
@@ -182,7 +182,7 @@ describe('gifts', () => {
 
   it('a gift from a user without a ball auto-joins them, then applies the gift', () => {
     const sim = quietSim();
-    sim.handleEvent(gift(2, PLACEHOLDER_GIFT_IDS.dash, 5));
+    sim.handleEvent(gift(2, GIFT_MAP.dash, 5));
     expect(sim.ballsOf('u1').length).toBe(1);
     expect(sim.ownerMass('u1')).toBe(20 + 5 * 2 * 5);
     const p = sim.players.get('u1')!;
@@ -208,7 +208,7 @@ describe('gifts', () => {
     const sim = quietSim();
     sim.debugSetPhase('results');
     sim.drainEvents();
-    sim.handleEvent(gift(1, PLACEHOLDER_GIFT_IDS.shield, 30));
+    sim.handleEvent(gift(1, GIFT_MAP.shield, 30));
     const q = sim.drainEvents().find((e) => e.type === 'giftQueued');
     expect(q && q.type === 'giftQueued' && `@${q.nickname}: ${q.what} ready ${q.when}`).toBe('@User 1: Shield ready nextRound');
     sim.players.get('u1')!.carryGifts = [];
@@ -222,13 +222,13 @@ describe('gifts', () => {
     const sim = quietSim();
     sim.handleEvent(ev({ type: 'join' }));
     sim.debugSpawn({ ownerId: 'K', mass: 5000, x: cx + 300, y: cy });
-    sim.handleEvent(gift(1, PLACEHOLDER_GIFT_IDS.shield, 30));
-    sim.handleEvent(gift(1, PLACEHOLDER_GIFT_IDS.shield, 30));
+    sim.handleEvent(gift(1, GIFT_MAP.shield, 30));
+    sim.handleEvent(gift(1, GIFT_MAP.shield, 30));
     const p = sim.players.get('u1')!;
     expect(p.shieldUntil).toBeCloseTo(sim.time + 20, 5);
-    sim.handleEvent(gift(20, PLACEHOLDER_GIFT_IDS.magnet, 500));
+    sim.handleEvent(gift(20, GIFT_MAP.magnet, 500));
     expect(p.magnetUntil).toBeCloseTo(sim.time + 60, 5);
-    sim.handleEvent(gift(3, PLACEHOLDER_GIFT_IDS.spikeShot, 100));
+    sim.handleEvent(gift(3, GIFT_MAP.spikeShot, 100));
     let fired = 0;
     for (let i = 0; i < 120; i++) {
       const before = sim.projectiles.length;
@@ -244,22 +244,22 @@ describe('gifts', () => {
     const sim = quietSim();
     sim.handleEvent(ev({ type: 'join' }));
     const p = sim.players.get('u1')!;
-    sim.handleEvent(gift(2, PLACEHOLDER_GIFT_IDS.dash, 5));
+    sim.handleEvent(gift(2, GIFT_MAP.dash, 5));
     expect(p.dashUntil).toBeCloseTo(sim.time + 6, 5);
-    sim.handleEvent(gift(10, PLACEHOLDER_GIFT_IDS.dash, 5));
+    sim.handleEvent(gift(10, GIFT_MAP.dash, 5));
     expect(p.dashUntil).toBeCloseTo(sim.time + 10, 5);
-    sim.handleEvent(gift(1, PLACEHOLDER_GIFT_IDS.blackHole, 1000));
+    sim.handleEvent(gift(1, GIFT_MAP.blackHole, 1000));
     expect(p.blackHoleUntil).toBeCloseTo(sim.time + 5, 5);
-    sim.handleEvent(gift(1, PLACEHOLDER_GIFT_IDS.blackHole, 1000));
+    sim.handleEvent(gift(1, GIFT_MAP.blackHole, 1000));
     expect(p.blackHoleUntil).toBeCloseTo(sim.time + 10, 5);
     p.blackHoleUntil = 0;
-    sim.handleEvent(gift(2, PLACEHOLDER_GIFT_IDS.blackHole, 1000));
+    sim.handleEvent(gift(2, GIFT_MAP.blackHole, 1000));
     expect(p.blackHoleUntil).toBeCloseTo(sim.time + 7, 5);
     p.blackHoleUntil = 0;
-    sim.handleEvent(gift(10, PLACEHOLDER_GIFT_IDS.blackHole, 1000));
+    sim.handleEvent(gift(10, GIFT_MAP.blackHole, 1000));
     expect(p.blackHoleUntil).toBeCloseTo(sim.time + 10, 5);
     // Shield and magnet keep the 60 s cap.
-    sim.handleEvent(gift(10, PLACEHOLDER_GIFT_IDS.shield, 30));
+    sim.handleEvent(gift(10, GIFT_MAP.shield, 30));
     expect(p.shieldUntil).toBeCloseTo(sim.time + 60, 5);
   });
 
@@ -281,6 +281,48 @@ describe('gifts', () => {
     sim.handleEvent(ev({ type: 'follow' }));
     sim.handleEvent(ev({ type: 'share' }));
     expect(sim.ownerMass('u1')).toBe(120);
+  });
+});
+
+describe('gift catalog + gift-map.json', () => {
+  it('Rose (real catalog gift) is mapped to Dash and triggers it; mass = coins x massPerCoin', () => {
+    const rose = catalogGiftByName('Rose')!;
+    expect(rose).toBeDefined();
+    expect(GIFT_MAP.dash).toBe(rose.id);
+    expect(CONFIG.gifts.abilities[rose.id]).toBe('dash');
+    const sim = quietSim();
+    sim.handleEvent(ev({ type: 'join' }));
+    sim.handleEvent(ev({ type: 'gift', giftId: rose.id, giftName: rose.name, coinsPerUnit: rose.coins, units: 2 } as never));
+    const p = sim.players.get('u1')!;
+    expect(p.dashUntil).toBeCloseTo(sim.time + 2 * CONFIG.abilities.dash.sec, 5);
+    expect(sim.ownerMass('u1')).toBe(20 + 2 * rose.coins * CONFIG.gifts.massPerCoin);
+  });
+
+  it('any other catalog gift only adds mass', () => {
+    const other = GIFT_CATALOG.gifts.find((g) => g.coins === 100 && !CONFIG.gifts.abilities[g.id])!;
+    const sim = quietSim();
+    sim.handleEvent(ev({ type: 'join' }));
+    sim.handleEvent(ev({ type: 'gift', giftId: other.id, giftName: other.name, coinsPerUnit: other.coins, units: 1 } as never));
+    const p = sim.players.get('u1')!;
+    expect(sim.ownerMass('u1')).toBe(20 + 100 * CONFIG.gifts.massPerCoin);
+    expect(p.dashUntil + p.shieldUntil + p.magnetUntil + p.blackHoleUntil).toBe(0);
+    expect(sim.drainEvents().some((e) => e.type === 'ability')).toBe(false);
+  });
+
+  it('legend rows follow the map; ids missing from the catalog are reported (placeholder icon)', () => {
+    for (const row of CONFIG.legend) {
+      expect(row.giftId).toBe(GIFT_MAP[row.ability]);
+      const c = catalogGift(row.giftId);
+      if (c) {
+        expect(row.giftName).toBe(c.name);
+        expect(row.coins).toBe(c.coins);
+        expect(row.icon).toBe(c.icon);
+      } else {
+        expect(row.icon).toBe('');
+        expect(missingMappedGifts().map((m) => m.ability)).toContain(row.ability);
+      }
+    }
+    expect(CONFIG.legend.find((r) => r.ability === 'dash')!.icon).toMatch(/^gifts\/\d+\.\w+$/);
   });
 });
 
@@ -498,7 +540,7 @@ describe('one mouth at a time + digestion', () => {
 
 describe('alive cap + queue', () => {
   let sim: Sim;
-  const gift = (userId: string, units: number, giftId: number = PLACEHOLDER_GIFT_IDS.shield, coinsPerUnit = 30) =>
+  const gift = (userId: string, units: number, giftId: number = GIFT_MAP.shield, coinsPerUnit = 30) =>
     sim.handleEvent(ev({ type: 'gift', userId, nickname: userId, giftId, giftName: 'g', coinsPerUnit, units } as never));
   const join = (userId: string) => sim.handleEvent(ev({ type: 'join', userId, nickname: userId }));
 

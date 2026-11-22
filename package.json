@@ -9,7 +9,8 @@
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "build": "npm run build -w game",
-    "sim:balance": "npm run sim:balance -w game --"
+    "sim:balance": "npm run sim:balance -w game --",
+    "gifts:fetch": "npm run gifts:fetch -w bridge --"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",

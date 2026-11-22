@@ -1,4 +1,4 @@
-import { Container, Graphics, Sprite, type Text } from 'pixi.js';
+import { Assets, Container, Graphics, Sprite, Text, type TextStyleOptions, type Texture } from 'pixi.js';
 import { CONFIG } from '../config';
 import type { Sim } from '../sim/Sim';
 import type { AvatarCache } from './avatars';
@@ -124,39 +124,101 @@ export class Hud {
   }
 }
 
-/** Gift legend, right side of the 63-88 % band (bottom-left stays free for TikTok comments). */
+/**
+ * Gift legend, right side of the 63-88 % band (bottom-left stays free for TikTok comments).
+ * Row: real gift icon with a coin-price badge | gift name (36 px) / ability (36 px, ability color).
+ * The price badge and the "any other gift" footer use SMALL_FONT: at 36 px the 410 px column cannot fit
+ * name + ability + price (e.g. "Black hole" + "1,000" needs ~360 px next to the icon).
+ */
+const SMALL_FONT = 28;
+
 export function makeLegend(): Container {
   const R = CONFIG.render;
   const c = new Container();
   const rows = CONFIG.legend;
-  const h = (R.legendBottom - R.legendTop) / rows.length;
+  const x0 = R.legendX, x1 = R.legendRight, top = R.legendTop + 6, bottom = R.legendBottom - 6;
   c.addChild(
     new Graphics()
-      .roundRect(R.legendX, R.legendTop + 6, R.legendRight - R.legendX, R.legendBottom - R.legendTop - 12, 24)
+      .roundRect(x0, top, x1 - x0, bottom - top, 24)
       .fill({ color: 0x050a1e, alpha: 0.6 })
       .stroke({ width: 2, color: 0x2a3b7a, alpha: 0.8 }),
   );
+  // Footer: what every other gift does.
+  const footer = smallLabel(`Any other gift: grow (+${CONFIG.gifts.massPerCoin} mass per coin)`, 0xb9c6ff, {
+    wordWrap: true, wordWrapWidth: x1 - x0 - 24, lineHeight: SMALL_FONT + 4,
+  });
+  footer.anchor.set(0.5, 1);
+  footer.position.set((x0 + x1) / 2, bottom - 8);
+  c.addChild(footer);
+  const rowsBottom = bottom - 16 - footer.height;
+  c.addChild(new Graphics().moveTo(x0 + 18, rowsBottom + 4).lineTo(x1 - 18, rowsBottom + 4).stroke({ width: 2, color: 0x2a3b7a, alpha: 0.8 }));
+
+  const h = (rowsBottom - top - 4) / rows.length;
+  const s = Math.min(R.legendIcon, Math.round(h - 14));
+  // Icon column: wide enough for the icon and the widest price badge.
+  const prices = rows.map((r) => smallLabel(r.coins.toLocaleString('en-US'), 0xffe08a));
+  const colW = Math.max(s, ...prices.map((p) => p.width + 30));
+  const ix = x0 + 12;
+  const cx = ix + colW / 2;
+  const tx = ix + colW + 12, maxW = x1 - 12 - tx;
   rows.forEach((row, i) => {
-    const y = R.legendTop + i * h + h / 2;
-    const ix = R.legendX + 12;
-    const s = R.legendIcon;
-    // Placeholder icon: colored tile + glyph (real gift art comes later).
-    c.addChild(
-      new Graphics()
-        .roundRect(ix, y - s / 2, s, s, 20)
-        .fill({ color: row.color, alpha: 0.25 })
-        .stroke({ width: 4, color: row.color }),
-    );
-    const g = label(row.glyph, 56, row.color);
-    g.position.set(ix + s / 2, y);
-    c.addChild(g);
-    const name = label(row.label, 40);
+    const y = top + 4 + i * h + h / 2;
+    const iy = y - 7; // icon sits a little high; the price badge overlaps its bottom edge
+    // Placeholder tile + glyph (gift not in the catalog, or until its icon loads).
+    const tile = new Container();
+    tile.addChild(new Graphics().roundRect(cx - s / 2, iy - s / 2, s, s, 16).fill({ color: row.color, alpha: 0.25 }).stroke({ width: 4, color: row.color }));
+    const g = label(row.glyph, 48, row.color);
+    g.position.set(cx, iy);
+    tile.addChild(g);
+    c.addChild(tile);
+    const iconLayer = new Container();
+    c.addChild(iconLayer);
+    if (row.icon) {
+      // Local copy in game/public/gifts (never loaded from TikTok at runtime).
+      Assets.load(`${import.meta.env.BASE_URL}${row.icon}`).then((tex: Texture) => {
+        const icon = new Sprite(tex);
+        icon.anchor.set(0.5);
+        icon.scale.set(s / Math.max(tex.width, tex.height));
+        icon.position.set(cx, iy);
+        iconLayer.addChild(icon);
+        tile.visible = false;
+      }).catch(() => console.warn(`[legend] could not load ${row.icon}; showing placeholder`));
+    }
+    // Coin price badge on the icon's bottom edge.
+    const price = prices[i];
+    const bw = price.width + 30, bh = SMALL_FONT + 6, bx = cx, by = iy + s / 2 + 2;
+    const badge = new Graphics()
+      .roundRect(bx - bw / 2, by - bh / 2, bw, bh, bh / 2).fill({ color: 0x1a1406, alpha: 0.92 }).stroke({ width: 2, color: 0xffc83d })
+      .circle(bx - bw / 2 + 12, by, 7).fill(0xffc83d);
+    price.position.set(bx + 7, by);
+    c.addChild(badge, price);
+    // Line 1: gift name (clipped to fit). Line 2: ability in its color.
+    const chars = [...row.giftName];
+    const name = label(row.giftName, R.minFont);
+    while (name.width > maxW && chars.length > 2) {
+      chars.pop();
+      name.text = chars.join('').trimEnd() + '…';
+    }
     name.anchor.set(0, 0.5);
-    name.position.set(ix + s + 16, y - 20);
-    const coins = label(`${row.coins} coins`, 36, 0xffd86b);
-    coins.anchor.set(0, 0.5);
-    coins.position.set(ix + s + 16, y + 22);
-    c.addChild(name, coins);
+    name.position.set(tx, y - 19);
+    const ability = label(row.label.toUpperCase(), R.minFont, row.color);
+    ability.anchor.set(0, 0.5);
+    ability.position.set(tx, y + 20);
+    if (ability.width > maxW) ability.text = row.label; // "BLACK HOLE" vs "Black hole"
+    c.addChild(name, ability);
   });
   return c;
+}
+
+/** Secondary legend text below the 36 px minimum (price badge, footer). */
+function smallLabel(text: string, fill: number, extra: Partial<TextStyleOptions> = {}): Text {
+  const t = new Text({
+    text,
+    style: {
+      fontFamily: CONFIG.render.fontFamily, fontSize: SMALL_FONT, fontWeight: '900', fill, align: 'center',
+      stroke: { color: 0x050814, width: 5, join: 'round' }, ...extra,
+    },
+  });
+  t.anchor.set(0.5);
+  return t;
 }

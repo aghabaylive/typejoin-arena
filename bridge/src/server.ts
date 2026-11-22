@@ -2,13 +2,16 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
-import { PLACEHOLDER_GIFTS, type BridgeMessage, type GameEvent } from '@typejoin/shared';
+import { GIFT_ABILITIES, GIFT_MAP, devGifts, type BridgeMessage, type GameEvent } from '@typejoin/shared';
 import type { EventSource } from './sources/EventSource';
 import { FakeSource } from './sources/FakeSource';
 import { Normalizer } from './normalize';
 import { BRIDGE_CONFIG } from './config';
 
 const DEV_HTML = fileURLToPath(new URL('../public/dev.html', import.meta.url));
+/** Local gift icons (downloaded by gifts:fetch), served for the dev panel. */
+const GIFT_ICON_DIR = fileURLToPath(new URL('../../game/public/gifts/', import.meta.url));
+const ICON_TYPES: Record<string, string> = { webp: 'image/webp', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif' };
 
 export interface BridgeHandle {
   close(): Promise<void>;
@@ -59,11 +62,21 @@ export async function startBridge(source: EventSource, cfg = BRIDGE_CONFIG): Pro
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       return void res.end(html);
     }
+    const icon = /^\/gifts\/(\d+)\.(webp|png|jpe?g|gif)$/.exec(url.pathname);
+    if (icon && req.method === 'GET') {
+      try {
+        const data = await readFile(`${GIFT_ICON_DIR}${icon[1]}.${icon[2]}`);
+        res.writeHead(200, { 'content-type': ICON_TYPES[icon[2]], 'cache-control': 'max-age=86400' });
+        return void res.end(data);
+      } catch {
+        return send(res, 404, { error: 'no icon' });
+      }
+    }
     if (url.pathname === '/dev/state' && req.method === 'GET') {
       return send(res, 200, {
         rates: source.rates,
         users: source.users.map((u) => ({ userId: u.userId, nickname: u.nickname })),
-        gifts: PLACEHOLDER_GIFTS,
+        gifts: devGifts().map((g) => ({ ...g, ability: GIFT_ABILITIES.find((a) => GIFT_MAP[a] === g.giftId) ?? null })),
         clients: wss.clients.size,
         totalEvents,
         recent: recent.slice(-20).reverse(),

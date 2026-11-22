@@ -83,3 +83,16 @@ Turning Magnet and Black Hole off entirely, as a diagnostic, still leaves the mi
 
 ### Trade-off: the play-phase pellet floor
 The decay settings can't fix the play-phase pellet floor. A sweep of `decayPerSec` (0.001–0.05) against `decayAboveMass` (100–2000) never reached 40 reliably. The single 42 it found fell back to 8 and 16 over 20 rounds. In 20-round checks, switching Magnet and Black Hole off raises the play-phase minimum from 14–16 to 80–114. The dips come from those fields: their range (400 and 350 on a 400-radius arena) pulls in nearly every pellet while they are active. Getting to 40 needs a smaller field range during play, a pellet-pull limit, or a faster refill. All of those are outside what this change was allowed to touch. Decay stays at 1 %/s above 500, which meets the other five 50-viewer targets.
+
+## Round 4: real gift catalog (`after-v4-catalog.json`)
+No rule or config changes. The harness gift mix keeps the same coin values (1 / 100 / 500 / 1000):
+- Rose senders now send the real Rose, which is the **Dash** gift in `shared/gift-map.json`.
+- The 100, 500 and 1000-coin roles send the gifts mapped to Spike shot, Magnet and Black hole.
+
+| viewers | top killer share | life non-gifter | p25 | life Rose | King chg | whale top 3 | whale King after BH | min pellets play | min pellets storm |
+|---|---|---|---|---|---|---|---|---|---|
+| 20 | 48 % | 34.1 s | 12.4 s | 42.9 s | 7.15 | 40 % | 50 % | 9 | 6 |
+| 50 | 20 % | 44.1 s | 15.5 s | 45.3 s | 7.6 | 50 % | 62 % | 9 | 10 |
+| 100 | 14 % | 34.7 s | 14.8 s | 30.8 s | 7.7 | 50 % | 61 % | 7 | 18 |
+
+Roses granting Dash lets 10 % of viewers hunt for a few seconds. In the 50-viewer scenario the whale now finishes in the top 3 in 50 % of rounds, down from 75 %. That misses the earlier >= 60 % target.

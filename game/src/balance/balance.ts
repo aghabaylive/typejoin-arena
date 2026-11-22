@@ -15,11 +15,24 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PLACEHOLDER_GIFT_IDS, type GameEvent } from '@typejoin/shared';
+import { GIFT_MAP, catalogGiftByName, type GameEvent } from '@typejoin/shared';
 import { Sim } from '../sim/Sim';
 import { makeRng } from '../sim/util';
 
 const DT = 1 / 60;
+
+/**
+ * Gift mix, with the same coin values as before (1 / 100 / 500 / 1000). Rose is the real catalog Rose (now the
+ * Dash gift). The 100/500/1000-coin roles send the gifts mapped to Spike shot / Magnet / Black hole in
+ * shared/gift-map.json, so the abilities fire exactly as they did with the placeholder ids.
+ */
+const ROSE_ID = catalogGiftByName('Rose')?.id ?? GIFT_MAP.dash;
+const MIX = {
+  rose: { giftId: ROSE_ID, coins: 1 },
+  mid: { giftId: GIFT_MAP.spikeShot, coins: 100 },
+  whale500: { giftId: GIFT_MAP.magnet, coins: 500 },
+  whale1000: { giftId: GIFT_MAP.blackHole, coins: 1000 },
+};
 const LIKES_PER_SEC = 20;
 
 interface Args { rounds: number; pools: number[]; label: string; seed: number; overrides: Record<string, unknown> }
@@ -130,13 +143,13 @@ export function runScenario(pool: number, rounds: number, seed: number, override
       if (role === 'whale') whaleId = id;
       at(t0 + rand() * (R.joinSec - 2), () => ev({ type: 'join', userId: id }));
       const when = () => t0 + rand() * (end - t0);
-      if (role === 'rose') at(when(), () => gift(id, PLACEHOLDER_GIFT_IDS.rose, 1, 1 + Math.floor(rand() * 5)));
-      if (role === 'mid') at(when(), () => gift(id, PLACEHOLDER_GIFT_IDS.spikeShot, 100, 1));
+      if (role === 'rose') at(when(), () => gift(id, MIX.rose.giftId, MIX.rose.coins, 1 + Math.floor(rand() * 5)));
+      if (role === 'mid') at(when(), () => gift(id, MIX.mid.giftId, MIX.mid.coins, 1));
       if (role === 'whale') {
-        at(when(), () => gift(id, PLACEHOLDER_GIFT_IDS.magnet, 500, 1));
+        at(when(), () => gift(id, MIX.whale500.giftId, MIX.whale500.coins, 1));
         at(when(), () => {
           whaleHoleAt = sim.time;
-          gift(id, PLACEHOLDER_GIFT_IDS.blackHole, 1000, 1);
+          gift(id, MIX.whale1000.giftId, MIX.whale1000.coins, 1);
         });
       }
     });
