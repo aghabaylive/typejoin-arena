@@ -63,8 +63,16 @@ export type GameEventType = GameEvent['type'];
 /** State of the live source (TikTok). FakeSource is always 'live'. */
 export type SourceState = 'connecting' | 'live' | 'reconnecting' | 'ended';
 
+/** Gift legend: "full" = bottom-right legend; "off" = zone left empty (TikTok Viewer Wishes bar), one line under the top bar. */
+export type LegendMode = 'full' | 'off';
+
+export function parseLegendMode(x: unknown): LegendMode | null {
+  return x === 'full' || x === 'off' ? x : null;
+}
+
 /** Host panel actions forwarded to the game. */
 export type HostAction =
+  | { action: 'legend'; mode: LegendMode }
   | { action: 'pause' }
   | { action: 'resume' }
   | { action: 'restartRound' }
@@ -93,6 +101,7 @@ export type GameToBridgeMessage = {
   phase: string;
   roundNo: number;
   paused: boolean;
+  legend: LegendMode;
   /** Bridge receive -> game handled, over events since the previous snapshot (ms). */
   delay: { count: number; sumMs: number; maxMs: number };
 };

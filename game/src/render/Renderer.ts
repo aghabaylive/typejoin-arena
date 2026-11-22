@@ -7,6 +7,8 @@ import { BallLayer, easeOutBack } from './balls';
 import { Floaters, Particles } from './effects';
 import { Hud, makeLegend } from './hud';
 import { Overlays } from './overlays';
+import { label } from './text';
+import type { LegendMode } from '@typejoin/shared';
 import { Toasts } from './toasts';
 import { formatMass } from './text';
 import { Textures } from './textures';
@@ -31,6 +33,9 @@ export class Renderer {
   private hud: Hud;
   private overlays: Overlays;
   private toasts = new Toasts();
+  private legend: Container;
+  private growLine: Container;
+  legendMode: LegendMode = CONFIG.ui.legend;
   private crown: Sprite;
   private flash = new Graphics();
   private crownState = { owner: null as string | null, x: 540, y: 300, fromX: 540, fromY: 300, flyT: 1, flashT: 1 };
@@ -66,7 +71,10 @@ export class Renderer {
       this.flash,
       this.floaters.container,
     );
-    stage.addChild(makeBackground(this.tex), world, this.hud.root, makeLegend(), this.overlays.root, this.toasts.root);
+    this.legend = makeLegend();
+    this.growLine = makeGrowLine();
+    stage.addChild(makeBackground(this.tex), world, this.hud.root, this.legend, this.growLine, this.overlays.root, this.toasts.root);
+    this.setLegendMode(CONFIG.ui.legend);
   }
 
   render(sim: Sim, alpha: number, dt: number): void {
@@ -88,6 +96,14 @@ export class Renderer {
     this.hud.update(sim, now);
     this.overlays.update(sim, now, dt);
     this.toasts.update(dt);
+  }
+
+  /** "full": legend bottom-right. "off": legend zone completely empty + one "Any gift = grow" line under the top bar. */
+  setLegendMode(mode: LegendMode): void {
+    this.legendMode = mode;
+    this.legend.visible = mode === 'full';
+    this.growLine.visible = mode === 'off';
+    this.toasts.offsetY = mode === 'off' ? 64 : 0;
   }
 
   /** Full-screen banner for "Reconnecting..." / "LIVE ended" (null hides it). */
@@ -256,4 +272,15 @@ export class Renderer {
       this.flash.circle(v.x, v.y, v.r * (1 + cs.flashT * 0.8)).fill({ color: 0xfff1a8, alpha: 0.55 * (1 - cs.flashT) });
     }
   }
+}
+
+/** The single line shown under the top bar when the legend is off. */
+function makeGrowLine(): Container {
+  const c = new Container();
+  const t = label('Any gift = grow', CONFIG.render.minFont, 0xffd86b);
+  const w = t.width + 48, h = 54;
+  c.addChild(new Graphics().roundRect(-w / 2, -h / 2, w, h, h / 2).fill({ color: 0x050a1e, alpha: 0.8 }).stroke({ width: 2, color: 0x2a3b7a, alpha: 0.9 }), t);
+  c.position.set(CONFIG.canvas.width / 2, CONFIG.render.hudBottom + 34);
+  c.visible = false;
+  return c;
 }

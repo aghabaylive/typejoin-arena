@@ -61,6 +61,12 @@
       <button class="alt" onclick="if (confirm('Restart the current round? Everyone has to type join again.')) cmd({cmd:'restartRound'})">Restart round</button>
       <span class="hint" id="roundInfo"></span>
     </div>
+    <div class="row">
+      <label>Gift legend</label>
+      <button id="legendFull" class="alt" onclick="cmd({cmd:'legend', mode:'full'})">Full legend</button>
+      <button id="legendOff" class="alt" onclick="cmd({cmd:'legend', mode:'off'})">Off (Viewer Wishes bar)</button>
+      <span class="hint" id="legendInfo"></span>
+    </div>
   </section>
   <section style="grid-column: 1 / -1">
     <h2>Alive players <span id="pcount"></span></h2>
@@ -118,6 +124,9 @@
     g.textContent = fresh ? 'game: ' + s.game.phase + (s.game.paused ? ' (PAUSED)' : '') : 'game: not connected';
     g.className = 'pill ' + (fresh && !s.game.paused ? 'ok' : 'bad');
     document.getElementById('roundInfo').textContent = fresh ? 'round ' + s.game.roundNo + ' · ' + s.game.phase : '';
+    document.getElementById('legendFull').className = fresh && s.game.legend === 'full' ? '' : 'alt';
+    document.getElementById('legendOff').className = fresh && s.game.legend === 'off' ? '' : 'alt';
+    document.getElementById('legendInfo').textContent = fresh ? 'now: ' + s.game.legend : '';
     renderPlayers();
     const bans = document.getElementById('bans');
     bans.replaceChildren();

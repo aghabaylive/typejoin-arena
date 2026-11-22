@@ -46,6 +46,7 @@ SOURCE=tiktok TIKTOK_USERNAME=<account> npm run dev
 ### Host panel: http://localhost:8787/host (local machine only)
 - Alive players with picture and name, and a **Remove and ban** button. Bans are stored in `data/bans.json`, and banned users' events are dropped by the bridge, so they can never rejoin. Banned users are listed with an Unban button.
 - Pause, resume and restart round.
+- **Gift legend toggle:** "Full legend", or "Off". Off leaves the bottom-right zone empty for TikTok LIVE Studio's Viewer Wishes bar and shows "Any gift = grow" under the top bar. The default is `CONFIG.ui.legend` (`"full"`). The bridge re-applies the last choice when the game reconnects.
 - Stats: event counts, delays, avatar cache and source errors.
 - **Name filter:** put words in `data/name-filter.json` as `{ "words": ["..."] }`, or in the `NAME_FILTER` env var (comma separated). A nickname containing any of them is shown as "player". Matching ignores case, accents, separators and common digit swaps (0 for o, 1 for i, 3 for e, and so on).
 

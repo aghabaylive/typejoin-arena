@@ -2,7 +2,7 @@
  * ALL tunable numbers live here. The simulation and renderer read only from this object.
  * Units: px, seconds, mass.
  */
-import { GIFT_ABILITIES, GIFT_MAP, findGift, type GiftAbility } from '@typejoin/shared';
+import { GIFT_ABILITIES, GIFT_MAP, findGift, type GiftAbility, type LegendMode } from '@typejoin/shared';
 
 export type AbilityId = GiftAbility;
 
@@ -190,6 +190,12 @@ export const CONFIG = {
 
   /** Alive cap: at most maxAlive real players have balls; further joins wait in a FIFO queue. */
   queue: { maxAlive: 60, showNext: 3 },
+
+  ui: {
+    /** "full": gift legend bottom-right. "off": that zone stays empty (TikTok LIVE Studio Viewer Wishes bar)
+     *  and a single "Any gift = grow" line is shown under the top bar. Switchable live from the host panel. */
+    legend: 'full' as LegendMode,
+  },
 
   /** Toast shown under the top bar when a gift is queued (rejoin cooldown / results screen). */
   toast: { sec: 2.8, maxVisible: 3 },

@@ -745,6 +745,12 @@ describe('pellets', () => {
   });
 });
 
+describe('ui config', () => {
+  it('the gift legend defaults to "full"', () => {
+    expect(CONFIG.ui.legend).toBe('full');
+  });
+});
+
 describe('formulas', () => {
   it('radius and speed', () => {
     expect(radiusForMass(10)).toBeCloseTo(28 + 20 * Math.log(2), 9);

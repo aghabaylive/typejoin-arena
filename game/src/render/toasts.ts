@@ -12,6 +12,8 @@ interface Toast {
 export class Toasts {
   readonly root = new Container();
   private live: Toast[] = [];
+  /** Extra downward offset (the "Any gift = grow" line occupies the first slot when the legend is off). */
+  offsetY = 0;
 
   add(text: string): void {
     const c = new Container();
@@ -21,7 +23,7 @@ export class Toasts {
       new Graphics().roundRect(-w / 2, -h / 2, w, h, h / 2).fill({ color: 0x050a1e, alpha: 0.9 }).stroke({ width: 3, color: 0xffc83d, alpha: 0.9 }),
       t,
     );
-    c.position.set(540, CONFIG.render.hudBottom + 36);
+    c.position.set(540, CONFIG.render.hudBottom + 36 + this.offsetY);
     c.alpha = 0;
     this.root.addChild(c);
     this.live.unshift({ c, life: CONFIG.toast.sec, y: 0 });
@@ -29,7 +31,7 @@ export class Toasts {
   }
 
   update(dt: number): void {
-    const base = CONFIG.render.hudBottom + 36;
+    const base = CONFIG.render.hudBottom + 36 + this.offsetY;
     for (let i = this.live.length - 1; i >= 0; i--) {
       const t = this.live[i];
       t.life -= dt;

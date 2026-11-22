@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import {
-  GIFT_ABILITIES, GIFT_MAP, devGifts,
+  GIFT_ABILITIES, GIFT_MAP, devGifts, parseLegendMode, type LegendMode,
   type BridgeMessage, type GameEvent, type GameToBridgeMessage, type HostAction, type PlayerSnapshot, type SourceState,
 } from '@typejoin/shared';
 import type { EventSource, RawSourceEvent } from './sources/EventSource';
@@ -48,7 +48,9 @@ export async function startBridge(source: EventSource, cfg = BRIDGE_CONFIG): Pro
   let dropped = 0;
   const platformToBridge: DelayStat = { count: 0, sumMs: 0, maxMs: 0 };
   const bridgeToGame: DelayStat = { count: 0, sumMs: 0, maxMs: 0 };
-  let game: Omit<GameToBridgeMessage, 'kind' | 'delay'> & { at: number } = { players: [], queued: 0, phase: '?', roundNo: 0, paused: false, at: 0 };
+  let game: Omit<GameToBridgeMessage, 'kind' | 'delay'> & { at: number } = { players: [], queued: 0, phase: '?', roundNo: 0, paused: false, legend: 'full', at: 0 };
+  /** Legend mode chosen in the host panel (null = game's config default); re-sent when the game reconnects. */
+  let legendMode: LegendMode | null = null;
   const statusLog: { at: string; state: SourceState; detail?: string }[] = [];
   const startedAt = Date.now();
   console.log(`[bridge] bans: ${bans.list().length}, name filter words: ${nameFilter.size}, event log: ${cfg.logDir}`);
@@ -69,6 +71,7 @@ export async function startBridge(source: EventSource, cfg = BRIDGE_CONFIG): Pro
   wss.on('connection', (ws) => {
     ws.send(JSON.stringify({ kind: 'hello', source: source.name, version: 1 } satisfies BridgeMessage));
     ws.send(JSON.stringify({ kind: 'status', state: source.state } satisfies BridgeMessage));
+    if (legendMode) ws.send(JSON.stringify({ kind: 'host', action: 'legend', mode: legendMode } satisfies BridgeMessage));
     console.log(`[bridge] game client connected (${wss.clients.size} total)`);
     ws.on('close', () => console.log(`[bridge] game client left (${wss.clients.size} total)`));
     ws.on('message', (data) => {
@@ -79,7 +82,7 @@ export async function startBridge(source: EventSource, cfg = BRIDGE_CONFIG): Pro
         return;
       }
       if (m?.kind !== 'players' || !Array.isArray(m.players)) return;
-      game = { players: m.players.slice(0, 500), queued: m.queued, phase: m.phase, roundNo: m.roundNo, paused: m.paused, at: Date.now() };
+      game = { players: m.players.slice(0, 500), queued: m.queued, phase: m.phase, roundNo: m.roundNo, paused: m.paused, legend: parseLegendMode(m.legend) ?? 'full', at: Date.now() };
       if (m.delay?.count > 0) {
         bridgeToGame.count += m.delay.count;
         bridgeToGame.sumMs += m.delay.sumMs;
@@ -189,6 +192,13 @@ export async function startBridge(source: EventSource, cfg = BRIDGE_CONFIG): Pro
         case 'pause': host({ action: 'pause' }); break;
         case 'resume': host({ action: 'resume' }); break;
         case 'restartRound': host({ action: 'restartRound' }); break;
+        case 'legend': {
+          const mode = parseLegendMode(b.mode);
+          if (!mode) return send(res, 400, { error: 'mode must be "full" or "off"' });
+          legendMode = mode;
+          host({ action: 'legend', mode });
+          break;
+        }
         case 'ban': {
           if (!userId) return send(res, 400, { error: 'userId required' });
           const nick = game.players.find((pl: PlayerSnapshot) => pl.userId === userId)?.nickname ?? String(b.nickname ?? userId);

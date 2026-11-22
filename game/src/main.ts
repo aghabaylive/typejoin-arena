@@ -59,6 +59,7 @@ const bridge = new BridgeClient(
     if (a.action === 'pause') hostPaused = true;
     else if (a.action === 'resume') hostPaused = false;
     else if (a.action === 'restartRound') sim.restartRound();
+    else if (a.action === 'legend') renderer.setLegendMode(a.mode);
     else if (a.action === 'remove') sim.removePlayer(a.userId);
   },
 );
@@ -85,7 +86,7 @@ setInterval(() => {
   }
   bridge.send({
     kind: 'players', players: [...players.values()], queued: sim.joinQueue.length, phase: sim.phase, roundNo: sim.roundNo,
-    paused: hostPaused || sourceOverlay() !== null, delay: { ...delay },
+    paused: hostPaused || sourceOverlay() !== null, legend: renderer.legendMode, delay: { ...delay },
   });
   delay.count = delay.sumMs = delay.maxMs = 0;
 }, 1000);
