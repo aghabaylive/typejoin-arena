@@ -62,9 +62,9 @@
       <span class="hint" id="roundInfo"></span>
     </div>
     <div class="row">
-      <label>Gift legend</label>
-      <button id="legendFull" class="alt" onclick="cmd({cmd:'legend', mode:'full'})">Full legend</button>
-      <button id="legendOff" class="alt" onclick="cmd({cmd:'legend', mode:'off'})">Off (Viewer Wishes bar)</button>
+      <label>In-game gift legend:</label>
+      <button id="legendFull" class="alt" onclick="cmd({cmd:'legend', mode:'full'})" title="Our legend in the bottom-right zone">ON</button>
+      <button id="legendOff" class="alt" onclick="cmd({cmd:'legend', mode:'off'})" title="Zone left empty for TikTok's Viewer Wishes bar">OFF</button>
       <span class="hint" id="legendInfo"></span>
     </div>
   </section>
@@ -126,7 +126,8 @@
     document.getElementById('roundInfo').textContent = fresh ? 'window ' + s.game.roundNo + ' · ' + s.game.phase : '';
     document.getElementById('legendFull').className = fresh && s.game.legend === 'full' ? '' : 'alt';
     document.getElementById('legendOff').className = fresh && s.game.legend === 'off' ? '' : 'alt';
-    document.getElementById('legendInfo').textContent = fresh ? 'now: ' + s.game.legend : '';
+    document.getElementById('legendInfo').textContent = fresh
+      ? 'now: ' + (s.game.legend === 'off' ? 'OFF (zone empty for Viewer Wishes)' : 'ON') + ' · saved, kept after a restart' : '';
     renderPlayers();
     const bans = document.getElementById('bans');
     bans.replaceChildren();

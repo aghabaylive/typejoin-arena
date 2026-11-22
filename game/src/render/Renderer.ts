@@ -329,7 +329,7 @@ export class Renderer {
 /** The single line shown under the top bar when the legend is off. */
 function makeGrowLine(): Container {
   const c = new Container();
-  const t = label('Any gift = grow  ·  Like = small grow', CONFIG.render.minFont, CONFIG.brand.yellow);
+  const t = label('Any gift = grow - Like = small grow', CONFIG.render.minFont, CONFIG.brand.yellow);
   const w = t.width + 48, h = 54;
   c.addChild(new Graphics().roundRect(-w / 2, -h / 2, w, h, h / 2).fill({ color: CONFIG.brand.ink, alpha: 0.85 }).stroke({ width: 2, color: CONFIG.brand.cobalt, alpha: 0.8 }), t);
   c.position.set(CONFIG.canvas.width / 2, CONFIG.render.hudBottom + 34);

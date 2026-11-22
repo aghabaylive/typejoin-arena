@@ -26,6 +26,8 @@ export const BRIDGE_CONFIG = {
   /** Local, gitignored files. */
   banFile: process.env.BAN_FILE ?? `${ROOT}data/bans.json`,
   nameFilterFile: process.env.NAME_FILTER_FILE ?? `${ROOT}data/name-filter.json`,
+  /** Host settings that survive a restart (in-game gift legend ON / OFF). */
+  settingsFile: process.env.SETTINGS_FILE ?? `${ROOT}data/settings.json`,
   logDir: process.env.LOG_DIR ?? `${ROOT}logs`,
   avatarCacheEntries: 500,
 };

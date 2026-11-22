@@ -13,6 +13,7 @@ import { BRIDGE_CONFIG } from './config';
 import { AvatarProxy } from './avatarProxy';
 import { BanList, loadNameFilter } from './moderation';
 import { EventLog } from './eventLog';
+import { Settings } from './settings';
 
 const page = (f: string) => fileURLToPath(new URL(`../public/${f}`, import.meta.url));
 /** Local gift icons (downloaded by gifts:fetch), served for the dev panel. */
@@ -49,8 +50,12 @@ export async function startBridge(source: EventSource, cfg = BRIDGE_CONFIG): Pro
   const platformToBridge: DelayStat = { count: 0, sumMs: 0, maxMs: 0 };
   const bridgeToGame: DelayStat = { count: 0, sumMs: 0, maxMs: 0 };
   let game: Omit<GameToBridgeMessage, 'kind' | 'delay'> & { at: number } = { players: [], queued: 0, phase: '?', roundNo: 0, paused: false, legend: 'full', at: 0 };
-  /** Legend mode chosen in the host panel (null = game's config default); re-sent when the game reconnects. */
-  let legendMode: LegendMode | null = null;
+  /**
+   * In-game gift legend chosen in the host panel (null = game's config default). Saved in data/settings.json,
+   * applied live, and re-sent whenever a game page connects (also after a bridge restart).
+   */
+  const settings = new Settings(cfg.settingsFile);
+  let legendMode: LegendMode | null = settings.legend;
   const statusLog: { at: string; state: SourceState; detail?: string }[] = [];
   const startedAt = Date.now();
   console.log(`[bridge] bans: ${bans.list().length}, name filter words: ${nameFilter.size}, event log: ${cfg.logDir}`);
@@ -196,6 +201,7 @@ export async function startBridge(source: EventSource, cfg = BRIDGE_CONFIG): Pro
           const mode = parseLegendMode(b.mode);
           if (!mode) return send(res, 400, { error: 'mode must be "full" or "off"' });
           legendMode = mode;
+          settings.setLegend(mode);
           host({ action: 'legend', mode });
           break;
         }
