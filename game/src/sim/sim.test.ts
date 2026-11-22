@@ -116,9 +116,9 @@ describe('contact rule', () => {
     expect(b.mass).toBe(50);
   });
 
-  it('no damage during the join window', () => {
+  it('no damage while the results screen is up', () => {
     const sim = makeSim();
-    expect(sim.phase).toBe('join');
+    sim.debugSetPhase('results');
     const a = sim.debugSpawn({ ownerId: 'A', mass: 1000, x: cx, y: cy });
     const b = sim.debugSpawn({ ownerId: 'B', mass: 50, x: cx + 40, y: cy });
     sim.contacts(DT);
@@ -214,7 +214,7 @@ describe('gifts', () => {
     sim.players.get('u1')!.carryGifts = [];
     sim.handleEvent(gift(3));
     for (let i = 0; i < CONFIG.round.resultsSec * 60 + 2; i++) sim.step(DT);
-    expect(sim.phase).toBe('join');
+    expect(sim.phase).toBe('play');
     expect(sim.ownerMass('u1')).toBe(20 + 3 * 5);
   });
 
@@ -263,12 +263,11 @@ describe('gifts', () => {
     expect(p.shieldUntil).toBeCloseTo(sim.time + 60, 5);
   });
 
-  it('likes: +1 mass each, max 20 per second per user; all likes fill the feast meter', () => {
+  it('likes: all likes fill the shared feast meter', () => {
     const sim = quietSim();
     sim.handleEvent(ev({ type: 'join' }));
     sim.handleEvent(ev({ type: 'like', count: 15 } as never));
     sim.handleEvent(ev({ type: 'like', count: 15 } as never));
-    expect(sim.ownerMass('u1')).toBe(40);
     sim.handleEvent(ev({ type: 'like', userId: 'nobody', count: 2970 } as never));
     sim.step(DT);
     expect(sim.feastActive()).toBe(true);
@@ -402,14 +401,14 @@ describe('storm', () => {
 });
 
 describe('round loop', () => {
-  it('join 10 s -> play 2:30 -> storm 1:00 -> results 15 s -> fresh round', () => {
+  it('play 2:30 -> storm 1:00 -> results 15 s -> next round (no join window)', () => {
     const sim = new Sim({ seed: 3 });
     const phases: string[] = [sim.phase];
     sim.handleEvent(ev({ type: 'join', userId: 'p1', nickname: 'P1' }));
     sim.handleEvent(ev({ type: 'gift', userId: 'p2', nickname: 'P2', giftId: PLACEHOLDER_GIFT_IDS.rose, giftName: 'Rose', coinsPerUnit: 1, units: 1 } as never));
     const R = CONFIG.round;
     const at: Record<string, number> = {};
-    const total = R.joinSec + R.playSec + R.stormSec + R.resultsSec + 1;
+    const total = R.playSec + R.stormSec + R.resultsSec + 1;
     for (let i = 0; i < total * 60; i++) {
       sim.step(DT);
       if (sim.phase !== phases[phases.length - 1]) {
@@ -418,14 +417,11 @@ describe('round loop', () => {
       }
       if (sim.phase === 'results' && !sim.lastResults) throw new Error('no results');
     }
-    expect(phases).toEqual(['join', 'play', 'storm', 'results', 'join']);
+    expect(phases).toEqual(['play', 'storm', 'results', 'play']);
     expect(sim.roundNo).toBe(2);
-    expect(at.play2).toBeCloseTo(R.joinSec, 1);
-    expect(at.storm3).toBeCloseTo(R.joinSec + R.playSec, 1);
-    expect(at.results4).toBeCloseTo(R.joinSec + R.playSec + R.stormSec, 1);
-    expect(at.join5).toBeCloseTo(R.joinSec + R.playSec + R.stormSec + R.resultsSec, 1);
-    // New round: no real players carried over (they must type join again), only bots.
-    expect(sim.balls.every((b) => b.isBot)).toBe(true);
+    expect(at.storm2).toBeCloseTo(R.playSec, 1);
+    expect(at.results3).toBeCloseTo(R.playSec + R.stormSec, 1);
+    expect(at.play4).toBeCloseTo(R.playSec + R.stormSec + R.resultsSec, 1);
     expect(sim.lastResults!.roundNo).toBe(1);
   });
 
@@ -591,10 +587,11 @@ describe('alive cap + queue', () => {
     expect(sim.joinQueue).toEqual(['u3', 'u2']);
     sim.debugSetPhase('results');
     for (let i = 0; i < CONFIG.round.resultsSec * 60 + 2; i++) sim.step(DT);
-    expect(sim.phase).toBe('join');
+    expect(sim.phase).toBe('play');
     expect(sim.ballsOf('u3').length).toBe(1); // gifter first
     expect(sim.ownerMass('u3')).toBeCloseTo(20 + 30 * 5, 6);
-    expect(sim.joinQueue).toEqual(['u2']);
+    // u2 waited in last round's queue; u1 (alive last round) respawns automatically and lines up behind.
+    expect(sim.joinQueue).toEqual(['u2', 'u1']);
   });
 });
 
@@ -614,14 +611,16 @@ describe('host controls', () => {
     expect(sim.balls.filter((x) => !x.isBot)).toHaveLength(0); // b's queued gift did not spawn them
   });
 
-  it('restartRound starts a fresh join window', () => {
+  it('restartRound starts a fresh round', () => {
     const sim = quietSim();
     sim.handleEvent(ev({ type: 'join' }));
     const round = sim.roundNo;
     sim.restartRound();
     expect(sim.roundNo).toBe(round + 1);
-    expect(sim.phase).toBe('join');
-    expect(sim.ballsOf('u1')).toHaveLength(0);
+    expect(sim.phase).toBe('play');
+    // u1 was alive, so they come back automatically (fresh ball, starting mass, protected).
+    expect(sim.ballsOf('u1')).toHaveLength(1);
+    expect(sim.ownerMass('u1')).toBe(CONFIG.ball.startMass);
   });
 });
 
@@ -742,6 +741,103 @@ describe('pellets', () => {
     for (let i = 0; i < 50; i++) sim.handleEvent(ev({ type: 'join', userId: `r${i}`, nickname: `R${i}` }));
     sim.debugSpawn({ ownerId: 'bot:1', mass: 20, x: cx, y: cy, isBot: true, protectedSec: 999 });
     expect(sim.pelletTarget()).toBe(250);
+  });
+});
+
+describe('no join window + likes', () => {
+  const join = (sim: Sim, userId: string) => sim.handleEvent(ev({ type: 'join', userId, nickname: userId }));
+  const toResults = (sim: Sim) => sim.debugSetPhase('results');
+  const toNextRound = (sim: Sim) => {
+    for (let i = 0; i < CONFIG.round.resultsSec * 60 + 2; i++) sim.step(DT);
+  };
+
+  it('there is no join phase: rounds start in play, and joining works at any time', () => {
+    const sim = quietSim();
+    expect(sim.phase).toBe('play');
+    for (let i = 0; i < 90 * 60; i++) sim.step(DT); // deep into the round
+    join(sim, 'late');
+    expect(sim.ballsOf('late')).toHaveLength(1);
+    sim.debugSetPhase('storm');
+    join(sim, 'storm');
+    expect(sim.ballsOf('storm')).toHaveLength(1);
+    const seen = new Set<string>();
+    const s2 = new Sim({ seed: 4 });
+    for (let i = 0; i < (CONFIG.round.playSec + CONFIG.round.stormSec + CONFIG.round.resultsSec) * 2 * 60; i++) {
+      s2.step(DT);
+      seen.add(s2.phase);
+    }
+    expect([...seen].sort()).toEqual(['play', 'results', 'storm']);
+  });
+
+  it('previous-round players (alive or waiting to rejoin) respawn automatically with start mass and protection', () => {
+    const sim = quietSim();
+    for (const u of ['alive', 'cooldown', 'gone']) join(sim, u);
+    sim.debugSpawn({ ownerId: 'bot:1', mass: 50, x: cx, y: cy, isBot: true });
+    sim.ballsOf('alive')[0].mass = 900;
+    // 'gone' was eaten long ago and never typed join again; 'cooldown' was eaten just before the end.
+    for (const b of sim.ballsOf('gone')) b.mass = 0;
+    sim.step(DT);
+    for (let i = 0; i < 20 * 60; i++) sim.step(DT);
+    for (const b of sim.ballsOf('cooldown')) b.mass = 0;
+    sim.step(DT);
+    expect(sim.players.get('cooldown')!.rejoinAt).toBeGreaterThan(sim.time);
+    toResults(sim);
+    toNextRound(sim);
+    expect(sim.phase).toBe('play');
+    for (const u of ['alive', 'cooldown']) {
+      const balls = sim.ballsOf(u);
+      expect(balls, u).toHaveLength(1);
+      expect(balls[0].mass).toBe(CONFIG.ball.startMass);
+      expect(balls[0].protectedUntil - sim.time).toBeGreaterThan(CONFIG.ball.spawnProtectionSec - 0.1);
+    }
+    expect(sim.ballsOf('gone')).toHaveLength(0);
+    expect(sim.ballsOf('bot:1')).toHaveLength(0);
+  });
+
+  it('joins during the results screen are queued (one toast each) and spawn when the new round starts', () => {
+    const sim = quietSim();
+    toResults(sim);
+    sim.drainEvents();
+    join(sim, 'newbie');
+    join(sim, 'newbie');
+    expect(sim.ballsOf('newbie')).toHaveLength(0);
+    const toasts = sim.drainEvents().filter((e) => e.type === 'joinQueued');
+    expect(toasts).toHaveLength(1);
+    expect(toasts[0]).toMatchObject({ type: 'joinQueued', ownerId: 'newbie', nickname: 'newbie' });
+    toNextRound(sim);
+    expect(sim.phase).toBe('play');
+    expect(sim.ballsOf('newbie')).toHaveLength(1);
+  });
+
+  it('a like is worth 0.1 mass, capped at +1 mass per second per user (always weaker than a Rose)', () => {
+    const sim = quietSim();
+    join(sim, 'u1');
+    const like = (count: number) => sim.handleEvent(ev({ type: 'like', userId: 'u1', nickname: 'u1', count } as never));
+    like(5);
+    expect(sim.ownerMass('u1')).toBeCloseTo(20.5, 9);
+    like(25); // same second: only 0.5 more allowed
+    expect(sim.ownerMass('u1')).toBeCloseTo(21, 9);
+    like(100);
+    expect(sim.ownerMass('u1')).toBeCloseTo(21, 9);
+    for (let i = 0; i < 61; i++) sim.step(DT);
+    like(100); // new second: +1 again
+    expect(sim.ownerMass('u1')).toBeCloseTo(22, 9);
+    // 10 s of non-stop tapping (+10) vs one Rose (+5) per second: likes stay far weaker than gifts.
+    expect(CONFIG.likes.maxMassPerSecPerUser).toBeLessThan(CONFIG.gifts.massPerCoin);
+    expect(CONFIG.likes.massPerLike).toBeLessThan(CONFIG.gifts.massPerCoin);
+  });
+
+  it('emits one "+1 heart" each time a player\'s like mass crosses a whole point', () => {
+    const sim = quietSim();
+    join(sim, 'u1');
+    sim.drainEvents();
+    const like = (count: number) => sim.handleEvent(ev({ type: 'like', userId: 'u1', nickname: 'u1', count } as never));
+    like(9);
+    expect(sim.drainEvents().filter((e) => e.type === 'likeHeart')).toHaveLength(0); // 0.9
+    like(1);
+    const hearts = sim.drainEvents().filter((e) => e.type === 'likeHeart');
+    expect(hearts).toHaveLength(1); // 1.0
+    expect(hearts[0]).toMatchObject({ ownerId: 'u1', ballId: sim.ballsOf('u1')[0].id });
   });
 });
 

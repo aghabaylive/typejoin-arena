@@ -33,7 +33,7 @@ export class Sim {
   readonly players = new Map<string, Player>();
   readonly leaderboard: Leaderboard;
 
-  phase: Phase = 'join';
+  phase: Phase = 'play';
   phaseEndsAt = 0;
   roundNo = 0;
   feastProgress = 0;
@@ -268,7 +268,7 @@ export class Sim {
       userId, nickname, avatarUrl, isBot,
       kills: 0, gifted: false, followUsed: false, shareUsed: false,
       rejoinAt: 0, revengeTarget: null, revengeUntil: 0,
-      likeWindowStart: -1, likeWindowCount: 0,
+      likeWindowStart: -1, likeWindowMass: 0, likeMass: 0, joinToastRound: -1,
       shieldUntil: 0, magnetUntil: 0, dashUntil: 0, blackHoleUntil: 0, dashTargetId: null,
       pendingAbilities: [], pendingGifts: [], carryGifts: [], queuedJoin: false, everJoinedThisRound: false,
     };
@@ -277,7 +277,12 @@ export class Sim {
   private onJoin(userId: string, nickname: string, avatarUrl?: string): void {
     const p = this.touchPlayer(userId, nickname, avatarUrl);
     if (this.phase === 'results') {
+      // Joins during the results screen spawn when the next round starts.
       p.queuedJoin = true;
+      if (p.joinToastRound !== this.roundNo) {
+        p.joinToastRound = this.roundNo;
+        this.emit({ type: 'joinQueued', ownerId: p.userId, nickname: p.nickname });
+      }
       return;
     }
     if (this.ownerMass(userId) > 0 || this.ballsOf(userId).length > 0) return;
@@ -340,13 +345,18 @@ export class Sim {
     if (!b || this.phase === 'results') return;
     if (this.time - p.likeWindowStart >= 1 || p.likeWindowStart < 0) {
       p.likeWindowStart = this.time;
-      p.likeWindowCount = 0;
+      p.likeWindowMass = 0;
     }
-    const allowed = Math.min(n, this.cfg.likes.maxPerSecPerUser - p.likeWindowCount);
-    if (allowed <= 0) return;
-    p.likeWindowCount += allowed;
-    b.mass += allowed * this.cfg.likes.massPerLike;
+    // Each like is worth massPerLike, capped at maxMassPerSecPerUser per user per second.
+    const gain = Math.min(n * this.cfg.likes.massPerLike, this.cfg.likes.maxMassPerSecPerUser - p.likeWindowMass);
+    if (gain <= 1e-9) return;
+    p.likeWindowMass += gain;
+    b.mass += gain;
     b.radius = this.radiusFor(b.mass);
+    // Visible feedback: one "+1 heart" each time the like mass crosses a whole point.
+    const before = Math.floor(p.likeMass + 1e-9);
+    p.likeMass += gain;
+    if (Math.floor(p.likeMass + 1e-9) > before) this.emit({ type: 'likeHeart', ownerId: p.userId, ballId: b.id });
   }
 
   private onSocial(userId: string, nickname: string, avatarUrl: string | undefined, kind: 'follow' | 'share'): void {
@@ -522,8 +532,22 @@ export class Sim {
     return !!p || balls.length > 0;
   }
 
-  /** Host "Restart round": a fresh join window (everyone types join again; queued gifts carry as usual). */
+  /**
+   * Everyone who took part and is alive or waiting to rejoin (cooldown, queue, gifts waiting) respawns
+   * automatically at the next round's start - no need to type join again. Call before the queue is carried.
+   */
+  private markAutoRespawn(): void {
+    for (const p of this.players.values()) {
+      if (p.isBot) continue;
+      const alive = this.ballsOf(p.userId).length > 0;
+      const waiting = p.rejoinAt > this.time || this.carryQueue.includes(p.userId) || this.joinQueue.includes(p.userId) || p.pendingGifts.length > 0;
+      if (alive || waiting) p.queuedJoin = true;
+    }
+  }
+
+  /** Host "Restart round": a fresh round; current players come back automatically, queued gifts carry as usual. */
   restartRound(): void {
+    this.markAutoRespawn();
     for (const p of this.players.values()) {
       if (p.pendingGifts.length) {
         p.carryGifts.push(...p.pendingGifts);
@@ -612,7 +636,7 @@ export class Sim {
       const queued = p.queuedJoin;
       Object.assign(p, {
         kills: 0, gifted: false, followUsed: false, shareUsed: false, rejoinAt: 0,
-        revengeTarget: null, revengeUntil: 0, likeWindowStart: -1, likeWindowCount: 0,
+        revengeTarget: null, revengeUntil: 0, likeWindowStart: -1, likeWindowMass: 0, likeMass: 0,
         shieldUntil: 0, magnetUntil: 0, dashUntil: 0, blackHoleUntil: 0, dashTargetId: null,
         pendingAbilities: [], pendingGifts: [], carryGifts: [], queuedJoin: false, everJoinedThisRound: false,
       } satisfies Partial<Player>);
@@ -627,7 +651,7 @@ export class Sim {
     }
     this.sizeScale = 1;
     for (let i = 0; i < this.cfg.pellets.target; i++) this.spawnPellet('normal', this.cfg.pellets.value);
-    this.enterPhase('join');
+    this.enterPhase('play'); // no join window: the round starts right away
     this.joinQueue = [];
     const carried = this.carryQueue;
     this.carryQueue = [];
@@ -648,7 +672,7 @@ export class Sim {
   private enterPhase(phase: Phase): void {
     const r = this.cfg.round;
     this.phase = phase;
-    const dur = phase === 'join' ? r.joinSec : phase === 'play' ? r.playSec : phase === 'storm' ? r.stormSec : r.resultsSec;
+    const dur = phase === 'play' ? r.playSec : phase === 'storm' ? r.stormSec : r.resultsSec;
     this.phaseEndsAt = this.time + dur;
     if (phase === 'play' || phase === 'storm') {
       for (const p of this.players.values()) {
@@ -683,6 +707,7 @@ export class Sim {
     // Queued joiners keep their place: they spawn (in queue order) at the next round's start.
     this.carryQueue = [...this.joinQueue];
     this.joinQueue = [];
+    this.markAutoRespawn();
     // Gifts still waiting for a respawn carry into the next round.
     for (const p of this.players.values()) {
       if (p.pendingGifts.length) {
@@ -706,8 +731,7 @@ export class Sim {
     }
 
     if (this.time >= this.phaseEndsAt) {
-      if (this.phase === 'join') this.enterPhase('play');
-      else if (this.phase === 'play') this.enterPhase('storm');
+      if (this.phase === 'play') this.enterPhase('storm');
       else if (this.phase === 'storm') this.enterPhase('results');
       else this.startRound();
     }

@@ -136,7 +136,7 @@ export function runScenario(pool: number, rounds: number, seed: number, override
     whaleHoleAt = Infinity;
     const t0 = sim.time;
     const R = sim.cfg.round;
-    const end = t0 + R.joinSec + R.playSec + R.stormSec - 5;
+    const end = t0 + R.playSec + R.stormSec - 5;
     const shuffled = [...ids].sort(() => rand() - 0.5);
     const nRose = Math.round(pool * 0.1), nMid = Math.round(pool * 0.04), nDough = Math.round(pool * 0.03);
     shuffled.forEach((id, i) => {
@@ -144,7 +144,8 @@ export function runScenario(pool: number, rounds: number, seed: number, override
         : i <= nRose + nMid + nDough ? 'doughnut' : 'none';
       roles.set(id, role);
       if (role === 'whale') whaleId = id;
-      at(t0 + rand() * (R.joinSec - 2), () => ev({ type: 'join', userId: id }));
+      // No join window: everyone types join during the first seconds of play (previous players respawn on their own).
+      at(t0 + rand() * 8, () => ev({ type: 'join', userId: id }));
       const when = () => t0 + rand() * (end - t0);
       if (role === 'rose') at(when(), () => gift(id, MIX.rose.giftId, MIX.rose.coins, 1 + Math.floor(rand() * 5)));
       if (role === 'mid') at(when(), () => gift(id, MIX.mid.giftId, MIX.mid.coins, 1));
@@ -196,6 +197,9 @@ export function runScenario(pool: number, rounds: number, seed: number, override
       }
     }
     sim.step(DT);
+    // New round (results -> play): reset per-round bookkeeping BEFORE this step's spawn events are read,
+    // so players auto-respawned at the round start are counted.
+    if (sim.phase === 'play' && lastPhase === 'results') beginRound();
     for (const e of sim.drainEvents()) {
       if (e.type === 'spawn' && !e.isBot && roles.has(e.ownerId) && !lifeStart.has(e.ownerId)) lifeStart.set(e.ownerId, sim.time);
       else if (e.type === 'eaten' && e.final) {
@@ -233,10 +237,7 @@ export function runScenario(pool: number, rounds: number, seed: number, override
       if (sim.kingOwner === whaleId) whaleKingSec += DT;
     }
     if (sim.phase !== lastPhase) {
-      // Lifetime counts combat time: lives that began in the join window start when play starts.
-      if (sim.phase === 'play') for (const id of lifeStart.keys()) lifeStart.set(id, sim.time);
       if (sim.phase === 'results') endRound();
-      if (sim.phase === 'join' && lastPhase === 'results') beginRound();
       lastPhase = sim.phase;
     }
   }

@@ -109,3 +109,18 @@ Roses granting Dash lets 10 % of viewers hunt for a few seconds. In the 50-viewe
 | 100 | 18 % | 32.5 s | 13.8 s | 32.4 s | 7.35 | 55 % | 75 % | 7 | 22 |
 
 50 viewers: every target that was met is still met. The play-phase pellet floor (>= 40) was already missed, because of the Magnet and Black Hole range.
+
+## Round 6: no join window, auto-respawn, likes 0.1 each (`v6-anytime-join.json`)
+- No join phase: rounds go play, then storm, then results.
+- Previous players respawn automatically.
+- Viewers type join during the first 8 s of play.
+- Likes are worth 0.1 mass each, capped at 1 per second per user.
+- No tuning.
+
+| viewers | top killer share | life non-gifter | p25 | life Rose | King chg | whale top 3 | whale King after BH | min pellets play | min pellets storm |
+|---|---|---|---|---|---|---|---|---|---|
+| 20 | 53 % | 31.1 s | 11.7 s | 45.4 s | 11.65 | 70 % | 80 % | 8 | 5 |
+| 50 | 23 % | 47.3 s | 18.1 s | 51.6 s | 16.3 | 70 % | 73 % | 10 | 8 |
+| 100 | 14 % | 34.1 s | 15.1 s | 29.1 s | 12.65 | 65 % | 69 % | 23 | 24 |
+
+50 viewers: every target that was met is still met. King changes rose from 7.1 to 16.3 per round: with likes worth far less, early leads are smaller and the crown changes hands more often. The play-phase pellet floor (>= 40) is still missed, as before.

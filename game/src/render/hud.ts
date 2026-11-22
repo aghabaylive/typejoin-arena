@@ -6,6 +6,8 @@ import type { Textures } from './textures';
 import { body, clip, formatMass, formatTime, label } from './text';
 
 const B = CONFIG.brand;
+/** The call-to-action: joining works at any time, so no countdown is attached to it. */
+export const JOIN_CTA = 'Type JOIN to play - anytime';
 
 /**
  * Top band (15-21 % of the height), two rows.
@@ -80,7 +82,7 @@ export class Hud {
     icon.width = 40;
     icon.height = 37;
     icon.position.set(34, 0);
-    this.joinText = label('Type JOIN to play', 36, B.ink, { stroke: { color: B.ink, width: 0 } });
+    this.joinText = label(JOIN_CTA, 36, B.ink, { stroke: { color: B.ink, width: 0 } });
     this.joinText.anchor.set(0, 0.5);
     this.joinText.position.set(62, 2);
     this.join.addChild(this.joinBg, icon, this.joinText);
@@ -100,8 +102,10 @@ export class Hud {
     const phase = sim.phase;
 
     // Phase + timer
-    const name = phase === 'play' ? 'PLAY' : phase === 'storm' ? 'STORM' : phase === 'join' ? 'JOIN' : 'RESULTS';
-    const t = `${name} ${formatTime(sim.phaseTimeLeft())}`;
+    // During results the timer slot says when the next round starts (separate from the join call-to-action).
+    const t = phase === 'results'
+      ? `Next round in ${Math.max(1, Math.ceil(sim.phaseTimeLeft()))}s`
+      : `${phase === 'storm' ? 'STORM' : 'PLAY'} ${formatTime(sim.phaseTimeLeft())}`;
     if (this.timer.text !== t) this.timer.text = t;
     if (phase !== this.phaseKey) {
       // Setting a style re-renders the text texture, so only do it on change.
@@ -139,7 +143,7 @@ export class Hud {
 
     // Join pill (queue indicator lives here when the arena is full)
     const q = sim.queueView();
-    let jt = 'Type JOIN to play';
+    let jt = JOIN_CTA;
     if (q.length > 0) {
       const frames = [`Queue: ${q.length}`, ...q.next.map((n, i) => `Next ${i + 1}: ${clip(n, 10)}`)];
       jt = frames[Math.floor(now / 1.6) % frames.length];
@@ -150,16 +154,13 @@ export class Hud {
       this.joinW = w;
       this.joinBg.clear().roundRect(0, -26, w, 52, 26).fill(B.yellow).stroke({ width: 3, color: 0xffffff, alpha: 0.6 });
     }
-    const joining = phase === 'join';
-    const pulse = joining ? 1.1 + 0.06 * Math.sin(now * 7) : 1;
-    this.join.scale.set(pulse);
     this.join.y = row2;
 
     // Like meter: Likes -> FOOD RAIN
     const need = CONFIG.likes.feastLikes;
     const active = sim.feastActive();
     const frac = active ? 1 : Math.min(1, sim.feastProgress / need);
-    const x0 = 548, x1 = 1034, h = 46, y = row2 - h / 2;
+    const x0 = Math.max(548, 40 + this.joinW + 22), x1 = 1034, h = 46, y = row2 - h / 2;
     this.meter.clear();
     this.meter.roundRect(x0, y, x1 - x0, h, h / 2).fill({ color: 0x000000, alpha: 0.45 }).stroke({ width: 3, color: B.cobalt, alpha: 0.9 });
     if (frac > 0) {
@@ -188,11 +189,12 @@ export function makeLegend(): Container {
       .fill({ color: B.ink, alpha: 0.85 })
       .stroke({ width: 2, color: B.cobalt, alpha: 0.5 }),
   );
-  const footer = label('Any gift = grow', 36, B.yellow);
+  // Footer: two short lines (one line would not fit the 410 px column at 36 px).
+  const footer = label('Any gift = grow\nLike = small grow', 36, B.yellow, { lineHeight: 40 });
   footer.anchor.set(0.5, 1);
-  footer.position.set((x0 + x1) / 2, bottom - 10);
+  footer.position.set((x0 + x1) / 2, bottom - 8);
   c.addChild(footer);
-  const rowsBottom = bottom - 18 - footer.height;
+  const rowsBottom = bottom - 14 - footer.height;
   const h = (rowsBottom - top - 8) / rows.length;
   const s = Math.min(88, Math.round(h - 4));
   const ix = x0 + 14;

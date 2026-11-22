@@ -9,15 +9,12 @@ import { clip, formatMass, label } from './text';
 /** Big centered texts over the arena + the results screen. */
 export class Overlays {
   readonly root = new Container();
-  private joinNum: Text;
-  private joinText: Text;
   private stormNum: Text;
   private announce: Text;
   private announceSub: Text;
   private announceUntil = 0;
   private announceStart = 0;
   private results: Container | null = null;
-  private lastJoinNum = -1;
   private lastStormNum = -1;
   private banner: Container;
   private bannerText: Text;
@@ -25,17 +22,13 @@ export class Overlays {
 
   constructor(private tex: Textures, private avatars: AvatarCache) {
     const { cx, cy } = CONFIG.arena;
-    this.joinNum = label('10', 220, 0xffd43b);
-    this.joinNum.position.set(cx, cy - 60);
-    this.joinText = label('TYPE  join', 96, 0xffffff);
-    this.joinText.position.set(cx, cy + 110);
     this.stormNum = label('10', 260, 0xff5a5f);
     this.stormNum.position.set(cx, cy);
     this.announce = label('', 110, 0xffd43b, { wordWrap: true, wordWrapWidth: 1000, breakWords: true });
     this.announce.position.set(cx, cy - 40);
     this.announceSub = label('', 64, 0xd2a8ff);
     this.announceSub.position.set(cx, cy + 70);
-    this.root.addChild(this.joinNum, this.joinText, this.stormNum, this.announce, this.announceSub);
+    this.root.addChild(this.stormNum, this.announce, this.announceSub);
     // Connection banner over the arena (on top of everything, incl. results).
     this.banner = new Container();
     this.banner.visible = false;
@@ -71,20 +64,7 @@ export class Overlays {
 
   update(sim: Sim, now: number, dt: number): void {
     const left = sim.phaseTimeLeft();
-    // Join window countdown
-    // While a banner (waiting / reconnecting / LIVE ended / paused) is up, hide the big countdowns behind it.
-    const joining = sim.phase === 'join' && !this.bannerShown;
-    this.joinNum.visible = this.joinText.visible = joining;
-    if (joining) {
-      const n = Math.ceil(left);
-      if (n !== this.lastJoinNum) this.joinNum.text = String(n);
-      const frac = left - Math.floor(left);
-      this.joinNum.scale.set(1 + 0.25 * frac * frac);
-      this.joinNum.alpha = 0.55 + 0.4 * frac;
-      this.joinText.scale.set(1 + 0.05 * Math.sin(now * 7));
-      this.lastJoinNum = n;
-    }
-    // Storm final countdown
+    // Storm final countdown (hidden while a banner - waiting / reconnecting / LIVE ended / paused - is up)
     const final = sim.phase === 'storm' && left <= CONFIG.round.finalCountdownSec && !this.bannerShown;
     this.stormNum.visible = final;
     if (final) {
@@ -124,7 +104,9 @@ export class Overlays {
       new Graphics().roundRect(24, top, 1032, bottom - top, 30).fill({ color: 0x12103a, alpha: 1 }).stroke({ width: 4, color: 0xffd43b, alpha: 0.9 }),
     );
     const title = label(`ROUND ${r.roundNo} RESULTS`, 64, 0xffd43b);
-    title.position.set(540, top + 56);
+    // Content starts 36 px lower than before: the slot right under the top bar is where toasts such as
+    // "@name joins next round" appear during the results screen.
+    title.position.set(540, top + 92);
     c.addChild(title);
     const cards: [string, TitleEntry | null, (e: TitleEntry) => string, number][] = [
       ['KING', r.king, (e) => formatMass(e.value), 0xffd43b],
@@ -133,7 +115,7 @@ export class Overlays {
     ];
     cards.forEach(([name, entry, val, color], i) => {
       const x = 540 + (i - 1) * 340;
-      const y = top + 130;
+      const y = top + 156;
       const head = label(name, 44, color);
       head.position.set(x, y);
       c.addChild(head);
@@ -165,10 +147,10 @@ export class Overlays {
       c.addChild(nm, v);
     });
     const lbTitle = label('SESSION TOP 5', 46, 0xb9bde6);
-    lbTitle.position.set(540, top + 490);
+    lbTitle.position.set(540, top + 512);
     c.addChild(lbTitle);
     r.top.forEach((row, i) => {
-      const y = top + 548 + i * 52;
+      const y = top + 566 + i * 48;
       const rank = label(`${i + 1}.`, 36, i === 0 ? 0xffd43b : 0xffffff);
       rank.anchor.set(1, 0.5);
       rank.position.set(250, y);
@@ -186,7 +168,7 @@ export class Overlays {
     });
     if (r.top.length === 0) {
       const none = label('no players yet — type join!', 38, 0xb9bde6);
-      none.position.set(540, top + 600);
+      none.position.set(540, top + 620);
       c.addChild(none);
     }
     this.results = c;

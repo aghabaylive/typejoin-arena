@@ -45,6 +45,10 @@ export class Renderer {
   private world!: Container;
   private shakeT = 0;
   private shakeAmp = 0;
+  /** Sim time when the current round started (round-start respawns skip the "+name" floater). */
+  private roundStartSimTime = -Infinity;
+  /** Last "+1 heart" time per ball (throttle). */
+  private lastHeart = new Map<number, number>();
 
   constructor(app: Application) {
     const stage = app.stage;
@@ -169,6 +173,22 @@ export class Renderer {
         if (b) this.floaters.add(`+${formatMass(e.mass)}`, b.x, b.y - b.radius - 10, 40, 0xffd86b, 1.1, -80);
         break;
       }
+      case 'joinQueued':
+        this.toasts.add(`@${e.nickname} joins next round`);
+        break;
+      case 'likeHeart': {
+        // "+1 ♥" rising from the ball, at most once per second per ball.
+        const last = this.lastHeart.get(e.ballId) ?? -Infinity;
+        if (this.now - last < 1) break;
+        this.lastHeart.set(e.ballId, this.now);
+        if (this.lastHeart.size > 500) this.lastHeart.clear();
+        const v = this.viewPos(e.ballId);
+        const b = sim.ballById(e.ballId);
+        const x = v?.x ?? b?.x, y = v?.y ?? b?.y, r = v?.r ?? b?.radius ?? 30;
+        if (x === undefined || y === undefined) break;
+        this.floaters.add('+1 ♥', x + r * 0.55, y - r * 0.6, 36, 0xff7ab6, 1.0, -90);
+        break;
+      }
       case 'giftQueued':
         this.toasts.add(`@${e.nickname}: ${e.what} ready ${e.when === 'nextRound' ? 'next round' : e.when === 'spawn' ? 'on spawn' : 'on respawn'}`);
         break;
@@ -188,6 +208,9 @@ export class Renderer {
       }
       case 'spawn': {
         if (e.isBot) break;
+        // Round start: everyone respawns at once; keep the pop, skip 20+ floating names (they would bury
+        // the NEW ROUND banner). "+name" is for players who join during the round.
+        if (sim.phase === 'play' && sim.time - this.roundStartSimTime < 0.5) break;
         const v = this.viewPos(e.ballId);
         const b = sim.ballById(e.ballId);
         const x = v?.x ?? b?.x, y = v?.y ?? b?.y, r = v?.r ?? b?.radius ?? 30;
@@ -206,8 +229,10 @@ export class Renderer {
         break;
       }
       case 'phase':
-        if (e.phase === 'storm') this.floaters.add('STORM!', CONFIG.arena.cx, CONFIG.arena.cy, 140, 0xff3b4a, 1.8, -20);
-        if (e.phase === 'play') this.floaters.add('FIGHT!', CONFIG.arena.cx, CONFIG.arena.cy, 150, 0xffe066, 1.4, -20);
+        if (e.phase === 'storm') this.floaters.add('STORM!', CONFIG.arena.cx, CONFIG.arena.cy, 140, CONFIG.brand.coral, 1.8, -20);
+        // New round: short, non-blocking banner (the world keeps running underneath).
+        if (e.phase === 'play') this.roundStartSimTime = sim.time;
+        if (e.phase === 'play') this.floaters.add('NEW ROUND', CONFIG.arena.cx, CONFIG.arena.cy - 40, 130, CONFIG.brand.yellow, 1.5, -20);
         this.crownState.owner = null;
         break;
       default:
@@ -315,7 +340,7 @@ export class Renderer {
 /** The single line shown under the top bar when the legend is off. */
 function makeGrowLine(): Container {
   const c = new Container();
-  const t = label('Any gift = grow', CONFIG.render.minFont, CONFIG.brand.yellow);
+  const t = label('Any gift = grow  ·  Like = small grow', CONFIG.render.minFont, CONFIG.brand.yellow);
   const w = t.width + 48, h = 54;
   c.addChild(new Graphics().roundRect(-w / 2, -h / 2, w, h, h / 2).fill({ color: CONFIG.brand.ink, alpha: 0.85 }).stroke({ width: 2, color: CONFIG.brand.cobalt, alpha: 0.8 }), t);
   c.position.set(CONFIG.canvas.width / 2, CONFIG.render.hudBottom + 34);

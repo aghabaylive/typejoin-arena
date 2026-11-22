@@ -1,7 +1,8 @@
 import type { AbilityId } from '../config';
 
 export type Temperament = 'bold' | 'cautious';
-export type Phase = 'join' | 'play' | 'storm' | 'results';
+/** Round: play -> storm -> results -> play ... (no join window: joining is possible at any time). */
+export type Phase = 'play' | 'storm' | 'results';
 export type AiMode = 'flee' | 'chase' | 'pellet' | 'wander' | 'dash' | 'storm' | 'merge';
 
 export interface Ball {
@@ -72,7 +73,12 @@ export interface Player {
   revengeTarget: string | null;
   revengeUntil: number;
   likeWindowStart: number;
-  likeWindowCount: number;
+  /** Like mass granted in the current 1 s window (capped by likes.maxMassPerSecPerUser). */
+  likeWindowMass: number;
+  /** Like mass this round (drives the "+1 heart" feedback on each whole point). */
+  likeMass: number;
+  /** Round in which this user last got a "joins next round" toast. */
+  joinToastRound: number;
   /** Owner-level ability timers (apply to all of the owner's pieces). */
   shieldUntil: number;
   magnetUntil: number;
@@ -158,4 +164,6 @@ export type SimEvent =
   | { type: 'feast'; active: boolean }
   | { type: 'gift'; ownerId: string; mass: number; giftName?: string }
   | { type: 'giftQueued'; ownerId: string; nickname: string; what: string; when: 'nextRound' | 'respawn' | 'spawn' }
+  | { type: 'joinQueued'; ownerId: string; nickname: string }
+  | { type: 'likeHeart'; ownerId: string; ballId: number }
   | { type: 'results'; results: RoundResults };

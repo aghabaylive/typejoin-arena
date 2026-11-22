@@ -24,7 +24,7 @@ Fake viewers get generated illustrated avatars (made locally from their id; neve
 2. Click **Add N viewers** with N = 30.
 3. Click **Lively clip preset**. This turns on background joins, likes and gifts.
 4. During play, fire a Black Hole and a few Spike Shots by hand.
-5. Each new round needs fresh joins. The background join rate covers this, or click **All fake viewers type join again**.
+5. Players from the previous round come back on their own at the start of the next round. Newcomers join any time.
 
 ## Real TikTok LIVE
 
@@ -110,7 +110,9 @@ game/    Vite + PixiJS v8
 
 ## Rule notes (choices made where the spec was open)
 - A chat message that matches a join alias becomes a `join` event *instead of* a `chat` event.
-- During the join window, balls move and eat pellets but cannot damage each other. Abilities bought then are held and fire when play starts. Their mass is added immediately.
+- There is no join window: a round is play (2:30), then storm (1:00), then results (15 s), and the next round starts right away with a short "NEW ROUND" banner. Viewers can type join at any time.
+- At the start of a round, everyone from the previous round who was alive or waiting to rejoin (in the rejoin cooldown, in the queue, or with gifts waiting) respawns automatically. They get starting mass and the normal 3 s spawn protection. Joins typed during the results screen are queued, shown as "@name joins next round", and spawn when the round starts.
+- Likes: 1 like = +0.1 mass, at most +1 mass per second per user (`likes.massPerLike`, `likes.maxMassPerSecPerUser`). Free likes are therefore always weaker than a Rose (+5). Each time a player's like mass crosses a whole point, a small "+1 ♥" rises from their ball. All likes still fill the shared Food Rain meter.
 - A gift sent during the 5 s rejoin cooldown is queued. The ball auto-spawns when the cooldown ends, then the gift is applied. Gifts sent during the results screen are applied at the start of the next round, so no gift is ever lost. In both cases a toast under the top bar confirms it (e.g. "@name: Shield ready next round").
 - Gifts give 5 mass per coin.
 - Contact damage: `B.loss = min(B.mass, rate * min(A.mass, 4 * B.ref) * dt)` with `rate` 0.15, where `B.ref` is B's mass when the fight started (held while contact continues). Using the start-of-fight mass keeps the drain linear, so even a huge ball needs about 1.7 s (`1 / (rate * 4)`) to finish a fresh ball; a cap based on B's *current* mass would decay exponentially and never quite finish. While a bigger ball eats a smaller one, the victim is drawn being pulled into the eater's center.

@@ -137,7 +137,7 @@ export class BallLayer {
       }
       v.tag.visible = !b.isBot && tagged.get(b.ownerId) === b;
       this.drawBall(sim, b, v, alpha, now, dt, t);
-      bodies.push({ id: b.id, mass: b.mass, x: v.x, y: v.y, r: v.r });
+      if (!b.isBot) bodies.push({ id: b.id, mass: b.mass, x: v.x, y: v.y, r: v.r }); // bots never hide a player's tag
       if (v.tag.visible) boxes.push({ id: b.id, mass: b.mass, x: v.tag.x, y: v.tag.y, w: v.tagW, h: TAG.h });
     }
     // Overlaps: the bigger ball's tag stays fully visible; a smaller ball's tag fades to 30 % when it hits a

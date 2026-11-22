@@ -139,8 +139,10 @@ export const CONFIG = {
   },
 
   likes: {
-    massPerLike: 1,
-    maxPerSecPerUser: 20,
+    /** A free like is always weaker than a Rose (1 coin = gifts.massPerCoin mass). */
+    massPerLike: 0.1,
+    /** Like mass cap per user per second. */
+    maxMassPerSecPerUser: 1,
     feastLikes: 3000,
     feastSec: 10,
     feastPelletsPerSec: 45,
@@ -201,7 +203,6 @@ export const CONFIG = {
   toast: { sec: 2.8, maxVisible: 3 },
 
   round: {
-    joinSec: 10,
     playSec: 150,
     stormSec: 60,
     resultsSec: 15,
