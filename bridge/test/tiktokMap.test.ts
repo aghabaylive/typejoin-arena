@@ -28,6 +28,18 @@ describe('TikTok payload mapping', () => {
     expect(out[2]).toMatchObject({ userId: '7300000000000000003', nickname: 'viewer_three', avatarUrl: 'https://p16-sign-va.tiktokcdn.com/a3~c5_100x100.jpeg' });
   });
 
+  it('real v2 chat shape: text in `content`, user.id, avatar in avatarThumb.urlList', () => {
+    const raws = map('chat', fx.chatRealShape);
+    expect(raws[0]).toMatchObject({
+      type: 'chat', text: 'join', userId: '7300000000000000009', nickname: 'Viewer Nine',
+      avatarUrl: 'https://p16-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a9~tplv-tiktokx-cropcenter:100:100.webp',
+      sourceTs: 1795310828224,
+    });
+    expect(raws[1]).toMatchObject({ type: 'chat', text: 'nice stream', userId: '7300000000000000010' });
+    expect(raws[1]!.avatarUrl).toBeUndefined();
+    expect(run(raws).map((e) => e.type)).toEqual(['join', 'chat']);
+  });
+
   it('createTime is read in ms or seconds', () => {
     const [a, , c] = map('chat', fx.chat);
     expect(a!.sourceTs).toBe(1763770800000);

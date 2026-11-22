@@ -49,7 +49,8 @@ export function mapTikTok(kind: TikTokKind, data: Any): RawSourceEvent | null {
   const meta = sourceTs ? { sourceTs } : {};
   switch (kind) {
     case 'chat': {
-      const text = str(data.comment);
+      // Real v2 payloads carry the text in `content`; older docs/examples use `comment`.
+      const text = str(data.content ?? data.comment);
       return text ? { type: 'chat', text, ...user, ...meta } : null;
     }
     case 'like': {

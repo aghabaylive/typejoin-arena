@@ -1,5 +1,5 @@
 {
-  "_note": "SYNTHETIC fixtures (no live room was available when this was written). Field names follow tiktok-live-proto v3 as decoded by tiktok-live-connector 2.5.0. Replace with a real recording via `npm run tiktok:record -w bridge -- <username>` (anonymized).",
+  "_note": "SYNTHETIC fixtures (no live room was available when this was written). Field names follow tiktok-live-proto v3 as decoded by tiktok-live-connector 2.5.0. Replace with a real recording via `npm run tiktok:record -w bridge -- <username>` (anonymized). The chatRealShape entries mirror the field layout of a real anonymized recording (content, user.id/idStr, avatarThumb.urlList).",
   "chat": [
     {
       "common": {
@@ -492,6 +492,53 @@
         }
       },
       "comment": ""
+    }
+  ],
+  "chatRealShape": [
+    {
+      "common": {
+        "method": "WebcastChatMessage",
+        "msgId": "7700000000000000901",
+        "roomId": "7710000000000000000",
+        "createTime": "1795310828224"
+      },
+      "user": {
+        "id": "7300000000000000009",
+        "idStr": "7300000000000000009",
+        "nickname": "Viewer Nine",
+        "displayId": "viewer_nine",
+        "avatarThumb": {
+          "urlList": [
+            "https://p16-sign-va.tiktokcdn.com/tos-maliva-avt-0068/a9~tplv-tiktokx-cropcenter:100:100.webp",
+            "https://p19-sign-va.tiktokcdn.com/a9.jpeg"
+          ],
+          "uri": "a9",
+          "height": 100,
+          "width": 100
+        }
+      },
+      "content": "join",
+      "visibleToSender": false,
+      "contentLanguage": "en"
+    },
+    {
+      "common": {
+        "method": "WebcastChatMessage",
+        "msgId": "7700000000000000902",
+        "roomId": "7710000000000000000",
+        "createTime": "1795310829000"
+      },
+      "user": {
+        "id": "7300000000000000010",
+        "idStr": "7300000000000000010",
+        "nickname": "Viewer Ten",
+        "displayId": "viewer_ten",
+        "avatarThumb": {
+          "urlList": []
+        }
+      },
+      "content": "nice stream",
+      "contentLanguage": "en"
     }
   ]
 }
