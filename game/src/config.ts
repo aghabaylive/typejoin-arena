@@ -226,6 +226,18 @@ export const CONFIG = {
 
   revenge: { sec: 60 },
 
+  /** King (crown) title. */
+  king: {
+    /** No King while the biggest player has less mass than this; the King card shows "No king yet". */
+    minMass: 100,
+    /** A challenger takes the crown only after having this much more mass than the King (0.1 = +10 %)... */
+    challengeMargin: 0.1,
+    /** ...continuously for this many seconds. */
+    challengeSec: 1.5,
+    /** Screen shake on a King change only when the new King has at least this much mass. */
+    shakeMinMass: 1000,
+  },
+
   /** Channel brand palette (visual only). */
   brand: {
     ink: 0x12103a,

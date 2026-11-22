@@ -124,3 +124,17 @@ Roses granting Dash lets 10 % of viewers hunt for a few seconds. In the 50-viewe
 | 100 | 14 % | 34.1 s | 15.1 s | 29.1 s | 12.65 | 65 % | 69 % | 23 | 24 |
 
 50 viewers: every target that was met is still met. King changes rose from 7.1 to 16.3 per round: with likes worth far less, early leads are smaller and the crown changes hands more often. The play-phase pellet floor (>= 40) is still missed, as before.
+
+## Round 7: King hysteresis (`v7-king-hysteresis.json`)
+- A challenger takes the crown only after having at least 10 % more mass than the King, continuously for 1.5 s (`king.challengeMargin`, `king.challengeSec`).
+- No King while the biggest player has under 100 mass (`king.minMass`).
+- Screen shake on a King change only when the new King has at least 1000 mass (`king.shakeMinMass`, render only).
+- No tuning.
+
+| viewers | top killer share | life non-gifter | p25 | life Rose | King chg | whale top 3 | whale King after BH | min pellets play | min pellets storm |
+|---|---|---|---|---|---|---|---|---|---|
+| 20 | 52 % | 35.5 s | 12.5 s | 36.6 s | 3.25 | 75 % | 78 % | 6 | 6 |
+| 50 | 25 % | 48 s | 18.1 s | 46.1 s | 3.95 | 75 % | 73 % | 9 | 9 |
+| 100 | 15 % | 34.8 s | 14.5 s | 37 s | 3.35 | 55 % | 63 % | 19 | 11 |
+
+50 viewers: King changes fall from 16.3 to 3.95 per round (target 3–8). Every other target that was met is still met. The play-phase pellet floor (>= 40) is still missed, as before.

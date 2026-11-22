@@ -202,7 +202,8 @@ export class Renderer {
         cs.fromX = cs.x;
         cs.fromY = cs.y;
         cs.flyT = cs.owner ? 0 : 1; // first king: crown simply appears
-        if (e.from && e.to) this.shake(10, 0.3); // a real King change, not the first crowning
+        // A real King change (not the first crowning) by a big ball; small changes only fly the crown.
+        if (e.from && e.to && sim.ownerMass(e.to) >= CONFIG.king.shakeMinMass) this.shake(10, 0.3);
         cs.owner = e.to;
         break;
       }

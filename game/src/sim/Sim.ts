@@ -39,6 +39,9 @@ export class Sim {
   feastProgress = 0;
   feastUntil = 0;
   kingOwner: string | null = null;
+  /** Challenger currently ahead of the King by the margin, and since when (sim time). */
+  private kingChallenger: string | null = null;
+  private kingChallengeSince = 0;
   lastResults: RoundResults | null = null;
   /** Uniform radius multiplier for crowding (1 = normal, never below crowding.minScale). */
   sizeScale = 1;
@@ -628,6 +631,7 @@ export class Sim {
     this.projectiles = [];
     this.pendingShots = [];
     this.kingOwner = null;
+    this.kingChallenger = null;
     this.feastUntil = 0;
     // Bots are recreated per round.
     for (const [id, p] of this.players) if (p.isBot) this.players.delete(id);
@@ -1292,14 +1296,23 @@ export class Sim {
   }
 
   private updateKing(): void {
+    const k = this.cfg.king;
     const top = this.topOwners(1)[0];
     const cur = this.kingOwner;
     let next = cur;
-    if (!top) next = null;
+    if (!top || top.mass < k.minMass) next = null;
     else if (!cur || this.ownerMass(cur) <= 0) next = top.ownerId;
-    else if (top.ownerId !== cur && top.mass > this.ownerMass(cur) * 1.02) next = top.ownerId;
+    else if (top.ownerId !== cur && top.mass >= this.ownerMass(cur) * (1 + k.challengeMargin)) {
+      // Hysteresis: the challenger must stay ahead by the margin continuously for challengeSec.
+      if (this.kingChallenger !== top.ownerId) {
+        this.kingChallenger = top.ownerId;
+        this.kingChallengeSince = this.time;
+      }
+      if (this.time - this.kingChallengeSince >= k.challengeSec - 1e-9) next = top.ownerId;
+    } else this.kingChallenger = null;
     if (next !== cur) {
       this.kingOwner = next;
+      this.kingChallenger = null;
       this.emit({ type: 'kingChanged', from: cur, to: next });
     }
   }

@@ -126,3 +126,4 @@ game/    Vite + PixiJS v8
 - Split pieces share their owner's ability timers. Kills and revenge count only when the owner's last piece dies. Pieces merge on contact after 12 s, and are forced together 3 s after that.
 - The storm shrinks a safe zone inside the arena. Balls can still enter the red ring, but they take 5 %/s damage there.
 - Live top 3, King, and titles consider real players only. Bots can eat and get kills, but never win titles.
+- King: no King while the biggest player has under 100 mass. A challenger takes the crown after having 10 % more mass than the King for 1.5 s continuously. The screen shakes on a King change only when the new King has 1000+ mass.

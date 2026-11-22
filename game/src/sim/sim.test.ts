@@ -853,3 +853,59 @@ describe('formulas', () => {
     expect(radiusForMass(1e9)).toBe(200);
   });
 });
+
+describe('King crown', () => {
+  const run = (sim: Sim, sec: number) => {
+    for (let i = 0; i < Math.round(sec * 60); i++) {
+      freeze(sim);
+      sim.step(DT);
+    }
+  };
+  const kingSim = () => {
+    const sim = quietSim();
+    sim.debugSpawn({ ownerId: 'A', mass: 500, x: cx - 300, y: cy });
+    sim.debugSpawn({ ownerId: 'B', mass: 300, x: cx + 300, y: cy });
+    run(sim, 0.1);
+    return sim;
+  };
+
+  it('no King while the biggest player has under minMass', () => {
+    const sim = quietSim();
+    sim.debugSpawn({ ownerId: 'A', mass: CONFIG.king.minMass - 1, x: cx, y: cy });
+    run(sim, 0.5);
+    expect(sim.kingOwner).toBeNull();
+    sim.ballsOf('A')[0].mass = CONFIG.king.minMass;
+    run(sim, 0.1);
+    expect(sim.kingOwner).toBe('A');
+    sim.ballsOf('A')[0].mass = CONFIG.king.minMass - 1;
+    run(sim, 0.1);
+    expect(sim.kingOwner).toBeNull();
+  });
+
+  it('a challenger needs +10 % mass for 1.5 s continuously', () => {
+    const sim = kingSim();
+    expect(sim.kingOwner).toBe('A');
+    const b = sim.ballsOf('B')[0];
+    b.mass = 540; // +8 %: never enough
+    run(sim, 3);
+    expect(sim.kingOwner).toBe('A');
+    b.mass = 560; // +12 %
+    run(sim, 1.4);
+    expect(sim.kingOwner).toBe('A');
+    b.mass = 520; // drops below the margin: timer resets
+    run(sim, 0.2);
+    b.mass = 560;
+    run(sim, 1.4);
+    expect(sim.kingOwner).toBe('A');
+    run(sim, 0.2);
+    expect(sim.kingOwner).toBe('B');
+  });
+
+  it('first crowning is immediate and the crown passes on when the King dies', () => {
+    const sim = kingSim();
+    expect(sim.kingOwner).toBe('A');
+    sim.ballsOf('A')[0].mass = 0;
+    run(sim, 0.1);
+    expect(sim.kingOwner).toBe('B');
+  });
+});
