@@ -68,7 +68,8 @@ app.ticker.add((t) => {
     balls: sim.balls.length,
     players: sim.balls.filter((b) => !b.isBot).length,
     bots: sim.balls.filter((b) => b.isBot).length,
-    pellets: sim.pellets.length,
+    pellets: `${sim.pellets.length} (target ${sim.pelletTarget()})`,
+    'size scale': sim.sizeScale.toFixed(2),
     particles: renderer.particleCount,
     bridge: `${bridge.status} (${bridge.source})`,
   });

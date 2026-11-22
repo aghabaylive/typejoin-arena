@@ -38,6 +38,12 @@ export interface Ball {
   spillY: number;
   /** Mass at the start of the current step (for effects of eaten balls). */
   massBefore: number;
+  /** Mass when the current fight started (caps contact loss so a kill takes >= ~0.4 s). */
+  contactRef: number;
+  /** Sim time of the last tick this ball was in a damaging contact (-1 = never). */
+  contactRefAt: number;
+  /** Ball id of the bigger ball currently eating this one (0 = none). Drives the swallow animation. */
+  swallowerId: number;
 }
 
 export interface QueuedGift {
@@ -145,4 +151,5 @@ export type SimEvent =
   | { type: 'kingChanged'; from: string | null; to: string | null }
   | { type: 'feast'; active: boolean }
   | { type: 'gift'; ownerId: string; mass: number; giftName?: string }
+  | { type: 'giftQueued'; ownerId: string; nickname: string; what: string; when: 'nextRound' | 'respawn' }
   | { type: 'results'; results: RoundResults };

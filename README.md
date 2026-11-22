@@ -60,8 +60,12 @@ game/    Vite + PixiJS v8
 ## Rule notes (choices made where the spec was open)
 - A chat message that matches a join alias becomes a `join` event *instead of* a `chat` event.
 - During the join window, balls move and eat pellets but cannot damage each other. Abilities bought then are held and fire when play starts. Their mass is added immediately.
-- A gift sent during the 5 s rejoin cooldown is queued. The ball auto-spawns when the cooldown ends, then the gift is applied. Gifts sent during the results screen are applied at the start of the next round, so no gift is ever lost.
-- Dash and Black hole also extend their duration per unit (capped at 60 s), the same way Shield and Magnet do.
+- A gift sent during the 5 s rejoin cooldown is queued. The ball auto-spawns when the cooldown ends, then the gift is applied. Gifts sent during the results screen are applied at the start of the next round, so no gift is ever lost. In both cases a toast under the top bar confirms it (e.g. "@name: Shield ready next round").
+- Gifts give 5 mass per coin.
+- Contact damage: `B.loss = min(B.mass, 0.6 * min(A.mass, 4 * B.ref) * dt)`, where `B.ref` is B's mass when the fight started (held while contact continues). Using the start-of-fight mass keeps the drain linear, so even a huge ball needs about 0.4 s to finish a fresh ball; a cap based on B's *current* mass would decay exponentially and never quite finish. While a bigger ball eats a smaller one, the victim is drawn being pulled into the eater's center.
+- Crowding: when all balls together cover more than 40 % of the arena, every radius shrinks by the same factor (smoothly, never below 0.5x). Rules use mass; only drawn and collision size change.
+- Pellet target = 150 + 2 per real player in the arena, max 400.
+- Shield and Magnet extend per unit, capped at 60 s. Dash extends per unit, capped at 10 s. Black hole gives 5 s for the first unit and +2 s per extra unit, capped at 10 s.
 - Split pieces share their owner's ability timers. Kills and revenge count only when the owner's last piece dies. Pieces merge on contact after 12 s, and are forced together 3 s after that.
 - The storm shrinks a safe zone inside the arena. Balls can still enter the red ring, but they take 5 %/s damage there.
 - Live top 3, King, and titles consider real players only. Bots can eat and get kills, but never win titles.

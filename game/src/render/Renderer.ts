@@ -7,6 +7,7 @@ import { BallLayer, easeOutBack } from './balls';
 import { Floaters, Particles } from './effects';
 import { Hud, makeLegend } from './hud';
 import { Overlays } from './overlays';
+import { Toasts } from './toasts';
 import { formatMass } from './text';
 import { Textures } from './textures';
 import { ArenaLayer, makeBackground } from './world';
@@ -29,6 +30,7 @@ export class Renderer {
   private floaters = new Floaters();
   private hud: Hud;
   private overlays: Overlays;
+  private toasts = new Toasts();
   private crown: Sprite;
   private flash = new Graphics();
   private crownState = { owner: null as string | null, x: 540, y: 300, fromX: 540, fromY: 300, flyT: 1, flashT: 1 };
@@ -64,7 +66,7 @@ export class Renderer {
       this.flash,
       this.floaters.container,
     );
-    stage.addChild(makeBackground(this.tex), world, this.hud.root, makeLegend(), this.overlays.root);
+    stage.addChild(makeBackground(this.tex), world, this.hud.root, makeLegend(), this.overlays.root, this.toasts.root);
   }
 
   render(sim: Sim, alpha: number, dt: number): void {
@@ -85,6 +87,7 @@ export class Renderer {
     this.floaters.update(dt);
     this.hud.update(sim, now);
     this.overlays.update(sim, now, dt);
+    this.toasts.update(dt);
   }
 
   get particleCount(): number {
@@ -100,10 +103,13 @@ export class Renderer {
     const P = this.particles, T = this.tex;
     switch (e.type) {
       case 'eaten': {
+        // Burst where the victim was last drawn (inside its eater after the swallow animation).
+        const v = this.viewPos(e.ballId);
+        const x = v?.x ?? e.x, y = v?.y ?? e.y;
         const color = sim.players.get(e.ownerId)?.isBot ? 0x8a8f9c : tierColor(e.mass);
-        P.burst(T.softDot, e.x, e.y, 26 + Math.min(40, e.radius / 3), 260 + e.radius * 2, color, 0.55, 0.75);
-        P.burst(T.dot, e.x, e.y, 14, 420, 0xffffff, 0.25, 0.4);
-        this.ringFlash(e.x, e.y, e.radius, color);
+        P.burst(T.softDot, x, y, 26 + Math.min(40, e.radius / 3), 260 + e.radius * 2, color, 0.55, 0.75);
+        P.burst(T.dot, x, y, 14, 420, 0xffffff, 0.25, 0.4);
+        this.ringFlash(x, y, e.radius, color);
         break;
       }
       case 'split': {
@@ -133,6 +139,9 @@ export class Renderer {
         if (b) this.floaters.add(`+${formatMass(e.mass)}`, b.x, b.y - b.radius - 10, 40, 0xffd86b, 1.1, -80);
         break;
       }
+      case 'giftQueued':
+        this.toasts.add(`@${e.nickname}: ${e.what} ready ${e.when === 'nextRound' ? 'next round' : 'on respawn'}`);
+        break;
       case 'feast':
         if (e.active) {
           this.floaters.add('FEAST!', CONFIG.arena.cx, CONFIG.arena.cy, 140, 0xff4fa3, 1.8, -20);

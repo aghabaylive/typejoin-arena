@@ -1,5 +1,5 @@
 import type { GameEvent } from '@typejoin/shared';
-import { CONFIG, radiusForMass, speedForMass, type AbilityId, type Config } from '../config';
+import { CONFIG, crowdScaleTarget, pelletTarget, radiusForMass, speedForMass, type AbilityId, type Config } from '../config';
 import { think } from './ai';
 import { Leaderboard } from './leaderboard';
 import type {
@@ -40,6 +40,8 @@ export class Sim {
   feastUntil = 0;
   kingOwner: string | null = null;
   lastResults: RoundResults | null = null;
+  /** Uniform radius multiplier for crowding (1 = normal, never below crowding.minScale). */
+  sizeScale = 1;
 
   private events: SimEvent[] = [];
   private nextId = 1;
@@ -176,6 +178,22 @@ export class Sim {
     return best;
   }
 
+  /** Drawn + collision radius for a mass, including the crowding scale. Rules still use mass. */
+  radiusFor(mass: number): number {
+    return radiusForMass(mass, this.cfg) * this.sizeScale;
+  }
+
+  /** Real (non-bot) players that currently have at least one ball. */
+  realPlayerCount(): number {
+    const s = new Set<string>();
+    for (const b of this.balls) if (!b.isBot) s.add(b.ownerId);
+    return s.size;
+  }
+
+  pelletTarget(): number {
+    return pelletTarget(this.realPlayerCount(), this.cfg);
+  }
+
   // ======================= events from the bridge =======================
 
   handleEvent(e: GameEvent): void {
@@ -236,16 +254,26 @@ export class Sim {
     if (!(g.units > 0)) return;
     if (this.phase === 'results') {
       p.carryGifts.push(g); // applied at the start of the next round; never lost
+      this.emitQueued(p, g, giftName, 'nextRound');
       return;
     }
     if (this.ballsOf(userId).length === 0) {
       if (this.time < p.rejoinAt) {
         p.pendingGifts.push(g); // auto-join as soon as the cooldown ends
+        this.emitQueued(p, g, giftName, 'respawn');
         return;
       }
       this.spawnPlayerBall(p);
     }
     this.applyGift(p, g, giftName);
+  }
+
+  /** Lets the sender see that a gift sent while they cannot play right now was registered. */
+  private emitQueued(p: Player, g: QueuedGift, giftName: string | undefined, when: 'nextRound' | 'respawn'): void {
+    const ability = this.cfg.gifts.abilities[g.giftId];
+    const row = ability ? this.cfg.legend.find((l) => l.ability === ability) : undefined;
+    const what = row?.label ?? giftName ?? 'Gift';
+    this.emit({ type: 'giftQueued', ownerId: p.userId, nickname: p.nickname, what, when });
   }
 
   /** Mass + ability. Requires the player to have a ball. */
@@ -254,7 +282,7 @@ export class Sim {
     const b = this.largestBallOf(p.userId);
     if (!b) return;
     b.mass += mass;
-    b.radius = radiusForMass(b.mass, this.cfg);
+    b.radius = this.radiusFor(b.mass);
     p.gifted = true;
     this.emit({ type: 'gift', ownerId: p.userId, mass, giftName });
     const ability = this.cfg.gifts.abilities[g.giftId];
@@ -278,7 +306,7 @@ export class Sim {
     if (allowed <= 0) return;
     p.likeWindowCount += allowed;
     b.mass += allowed * this.cfg.likes.massPerLike;
-    b.radius = radiusForMass(b.mass, this.cfg);
+    b.radius = this.radiusFor(b.mass);
   }
 
   private onSocial(userId: string, nickname: string, avatarUrl: string | undefined, kind: 'follow' | 'share'): void {
@@ -294,28 +322,29 @@ export class Sim {
       p.shareUsed = true;
       b.mass += this.cfg.social.shareMass;
     }
-    b.radius = radiusForMass(b.mass, this.cfg);
+    b.radius = this.radiusFor(b.mass);
   }
 
   // ======================= abilities =======================
 
   activateAbility(p: Player, ability: AbilityId, units: number): void {
     const a = this.cfg.abilities;
-    const extend = (until: number, sec: number) =>
-      Math.min(this.time + a.maxDurationSec, Math.max(until, this.time) + sec * units);
+    const extend = (until: number, add: number, maxSec = a.maxDurationSec) =>
+      Math.min(this.time + maxSec, Math.max(until, this.time) + add);
     switch (ability) {
       case 'dash':
-        p.dashUntil = extend(p.dashUntil, a.dash.sec);
+        p.dashUntil = extend(p.dashUntil, a.dash.sec * units, a.dash.maxSec);
         p.dashTargetId = null;
         break;
       case 'shield':
-        p.shieldUntil = extend(p.shieldUntil, a.shield.sec);
+        p.shieldUntil = extend(p.shieldUntil, a.shield.sec * units);
         break;
       case 'magnet':
-        p.magnetUntil = extend(p.magnetUntil, a.magnet.sec);
+        p.magnetUntil = extend(p.magnetUntil, a.magnet.sec * units);
         break;
       case 'blackHole':
-        p.blackHoleUntil = extend(p.blackHoleUntil, a.blackHole.sec);
+        p.blackHoleUntil = extend(
+          p.blackHoleUntil, a.blackHole.sec + a.blackHole.secPerExtraUnit * Math.max(0, units - 1), a.blackHole.maxSec);
         break;
       case 'spikeShot': {
         // Each unit is one shot, fired in sequence after any shots still queued for this sender.
@@ -392,13 +421,14 @@ export class Sim {
 
   private makeBall(ownerId: string, isBot: boolean, mass: number, x: number, y: number, temperament?: Temperament): Ball {
     const b: Ball = {
-      id: this.nextId++, ownerId, isBot, mass, radius: radiusForMass(mass, this.cfg),
+      id: this.nextId++, ownerId, isBot, mass, radius: this.radiusFor(mass),
       x, y, px: x, py: y, vx: 0, vy: 0,
       temperament: temperament ?? (this.rand() < this.cfg.ai.boldChance ? 'bold' : 'cautious'),
       spawnedAt: this.time, protectedUntil: this.time + this.cfg.ball.spawnProtectionSec, mergeAt: 0,
       aiMode: 'wander', aiDx: 0, aiDy: 0, aiNextThink: this.time + this.rand() * this.cfg.ai.thinkIntervalSec,
       wanderAngle: this.rand() * Math.PI * 2, wanderUntil: 0,
       inContact: false, lastDamagerOwner: null, lastDamagedAt: -1, spillAcc: 0, spillX: x, spillY: y, massBefore: mass,
+      contactRef: mass, contactRefAt: -1, swallowerId: 0,
     };
     this.balls.push(b);
     this.ballIndex.set(b.id, b);
@@ -406,7 +436,7 @@ export class Sim {
   }
 
   spawnPlayerBall(p: Player): Ball {
-    const r = radiusForMass(this.cfg.ball.startMass, this.cfg);
+    const r = this.radiusFor(this.cfg.ball.startMass);
     const pt = this.findSpawnPoint(r);
     const b = this.makeBall(p.userId, p.isBot, this.cfg.ball.startMass, pt.x, pt.y);
     p.everJoinedThisRound = true;
@@ -524,6 +554,7 @@ export class Sim {
       this.spikes.push(s);
       this.placeSpike(s);
     }
+    this.sizeScale = 1;
     for (let i = 0; i < this.cfg.pellets.target; i++) this.spawnPellet('normal', this.cfg.pellets.value);
     this.enterPhase('join');
     for (const p of [...this.players.values()]) {
@@ -588,6 +619,7 @@ export class Sim {
       b.py = b.y;
       b.massBefore = b.mass;
       b.inContact = false;
+      b.swallowerId = 0;
     }
 
     if (this.time >= this.phaseEndsAt) {
@@ -599,6 +631,7 @@ export class Sim {
     if (this.phase === 'results') return; // world is frozen behind the results screen
 
     this.processQueues();
+    this.updateSizeScale(dt);
     this.pelletGrid.rebuild(this.pellets);
     this.moveBalls(dt);
     this.applyFieldAbilities(dt);
@@ -643,6 +676,20 @@ export class Sim {
       this.feastUntil = Math.max(this.feastUntil, this.time) + this.cfg.likes.feastSec;
       if (!wasActive) this.emit({ type: 'feast', active: true });
     }
+  }
+
+  /** Crowding: shrink every radius uniformly (and smoothly) when balls cover too much of the arena. */
+  updateSizeScale(dt: number): void {
+    let area = 0;
+    for (const b of this.balls) {
+      const r = radiusForMass(b.mass, this.cfg);
+      area += Math.PI * r * r;
+    }
+    const target = crowdScaleTarget(area, this.cfg);
+    const k = 1 - Math.exp(-this.cfg.crowding.smoothPerSec * dt);
+    this.sizeScale += (target - this.sizeScale) * k;
+    if (Math.abs(target - this.sizeScale) < 1e-4) this.sizeScale = target;
+    for (const b of this.balls) b.radius = this.radiusFor(b.mass);
   }
 
   private moveBalls(dt: number): void {
@@ -744,14 +791,15 @@ export class Sim {
     }
     if (any) {
       this.pellets = this.pellets.filter((p) => !p.eaten);
-      for (const b of this.balls) b.radius = radiusForMass(b.mass, this.cfg);
+      for (const b of this.balls) b.radius = this.radiusFor(b.mass);
     }
   }
 
   /**
    * The single contact rule (eating == fighting). For each overlapping pair of different owners:
-   *   B.loss = min(B.mass, rate * A.mass * dt), A gains gainFraction * B.loss, the rest spills as pellets;
-   * and symmetrically at the same time. Plus soft separation.
+   *   B.loss = min(B.mass, rate * min(A.mass, maxAttackerRatio * B.ref) * dt), A gains gainFraction * B.loss,
+   * the rest spills as pellets; and symmetrically at the same time. Plus soft separation.
+   * B.ref is B's mass when the fight started (so the cap does not shrink with B and a kill takes >= ~0.4 s).
    */
   contacts(dt: number): void {
     const c = this.cfg.contact;
@@ -760,6 +808,9 @@ export class Sim {
     const loss = new Float64Array(n);
     const gainsFrom: { victim: number; attacker: number; amount: number; x: number; y: number }[] = [];
     const combat = this.combatEnabled();
+    // Fight reference mass: kept while the ball stays in damaging contact, reset after a break.
+    const refOf = (b: Ball) =>
+      b.contactRefAt >= this.time - 1.5 * dt ? Math.max(b.contactRef, b.massBefore) : b.massBefore;
 
     for (let i = 0; i < n; i++) {
       const a = balls[i];
@@ -785,8 +836,12 @@ export class Sim {
         a.inContact = b.inContact = true;
         if (!combat || this.isHarmless(a) || this.isHarmless(b)) continue;
         const cxp = a.x + nx * (a.radius - overlap / 2), cyp = a.y + ny * (a.radius - overlap / 2);
-        const lb = Math.min(b.massBefore, c.rate * a.massBefore * dt);
-        const la = Math.min(a.massBefore, c.rate * b.massBefore * dt);
+        const refA = refOf(a), refB = refOf(b);
+        const lb = Math.min(b.massBefore, c.rate * Math.min(a.massBefore, c.maxAttackerRatio * refB) * dt);
+        const la = Math.min(a.massBefore, c.rate * Math.min(b.massBefore, c.maxAttackerRatio * refA) * dt);
+        a.contactRef = refA;
+        b.contactRef = refB;
+        a.contactRefAt = b.contactRefAt = this.time;
         loss[j] += lb;
         loss[i] += la;
         gainsFrom.push({ victim: j, attacker: i, amount: lb, x: cxp, y: cyp });
@@ -814,11 +869,12 @@ export class Sim {
         biggest[g.victim] = amt;
         v.lastDamagerOwner = a.ownerId;
         v.lastDamagedAt = this.time;
+        v.swallowerId = a.massBefore > v.massBefore ? a.id : 0;
       }
     }
     for (const b of balls) {
       if (b.mass < 0) b.mass = 0;
-      b.radius = radiusForMass(b.mass, this.cfg);
+      b.radius = this.radiusFor(b.mass);
       this.constrain(b);
     }
   }
@@ -872,7 +928,7 @@ export class Sim {
     const m = b.mass / pieces;
     const mergeAt = this.time + S.remergeSec;
     const startAng = this.rand() * Math.PI * 2;
-    const r = radiusForMass(m, this.cfg);
+    const r = this.radiusFor(m);
     this.emit({ type: 'split', ownerId: b.ownerId, x: b.x, y: b.y, radius: b.radius, mass: b.mass });
     const ox = b.x, oy = b.y;
     for (let k = 0; k < pieces; k++) {
@@ -938,7 +994,7 @@ export class Sim {
     }
     const lost = target.mass * P.lossFraction;
     target.mass -= lost;
-    target.radius = radiusForMass(target.mass, this.cfg);
+    target.radius = this.radiusFor(target.mass);
     this.spill(lost, target.x, target.y, 12);
     this.emit({ type: 'spikeShotHit', targetOwner: target.ownerId, x, y, blocked: false, split: false });
   }
@@ -952,7 +1008,7 @@ export class Sim {
     for (const b of this.balls) {
       if (b.mass > B.decayAboveMass) b.mass -= b.mass * B.decayPerSec * dt;
       if (storm && Math.hypot(b.x - cx, b.y - cy) > safe) b.mass -= b.mass * this.cfg.round.stormDamagePerSec * dt;
-      b.radius = radiusForMass(b.mass, this.cfg);
+      b.radius = this.radiusFor(b.mass);
     }
   }
 
@@ -969,7 +1025,7 @@ export class Sim {
       const killer = b.lastDamagerOwner && this.time - b.lastDamagedAt < 0.5 ? b.lastDamagerOwner : null;
       this.emit({
         type: 'eaten', ballId: b.id, ownerId: b.ownerId, killerOwner: killer,
-        x: b.x, y: b.y, radius: radiusForMass(b.massBefore, this.cfg), mass: Math.max(b.massBefore, b.mass), final,
+        x: b.x, y: b.y, radius: this.radiusFor(b.massBefore), mass: Math.max(b.massBefore, b.mass), final,
       });
       if (!final) continue;
       const victim = this.players.get(b.ownerId);
@@ -1022,7 +1078,7 @@ export class Sim {
         main.x = x / mass;
         main.y = y / mass;
         main.mergeAt = 0;
-        main.radius = radiusForMass(mass, this.cfg);
+        main.radius = this.radiusFor(mass);
         this.constrain(main);
         this.emit({ type: 'merge', ownerId: owner, ballId: main.id });
         continue;
@@ -1038,7 +1094,7 @@ export class Sim {
           big.x = (big.x * big.mass + small.x * small.mass) / (big.mass + small.mass);
           big.y = (big.y * big.mass + small.y * small.mass) / (big.mass + small.mass);
           big.mass += small.mass;
-          big.radius = radiusForMass(big.mass, this.cfg);
+          big.radius = this.radiusFor(big.mass);
           this.removeBall(small);
           this.emit({ type: 'merge', ownerId: owner, ballId: big.id });
         }
@@ -1050,11 +1106,12 @@ export class Sim {
 
   private respawnPellets(dt: number): void {
     const P = this.cfg.pellets;
+    const target = this.pelletTarget();
     let normal = 0;
     for (const p of this.pellets) if (p.kind === 'normal') normal++;
-    if (normal < P.target) {
+    if (normal < target) {
       this.pelletAcc += P.respawnPerSec * dt;
-      while (this.pelletAcc >= 1 && normal < P.target) {
+      while (this.pelletAcc >= 1 && normal < target) {
         this.pelletAcc -= 1;
         this.spawnPellet('normal', P.value);
         normal++;

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { GameEvent } from '@typejoin/shared';
 import { PLACEHOLDER_GIFT_IDS } from '@typejoin/shared';
 import { Sim } from './Sim';
-import { CONFIG, radiusForMass } from '../config';
+import { CONFIG, crowdScaleTarget, pelletTarget, radiusForMass } from '../config';
 
 const DT = 1 / 60;
 const { cx, cy } = CONFIG.arena;
@@ -19,7 +19,7 @@ function makeSim(over: Record<string, unknown> = {}) {
   return new Sim({
     seed: 1,
     config: {
-      pellets: { target: 0 },
+      pellets: { target: 0, perPlayer: 0 },
       bots: { minBalls: 0 },
       spikes: { count: 0 },
       ball: { decayPerSec: 0 },
@@ -40,13 +40,13 @@ function freeze(sim: Sim) {
 }
 
 describe('contact rule', () => {
-  it('big vs small: each loses 0.6 * other mass * dt, gains half of what it takes', () => {
+  it('big vs small: each loses 0.6 * min(other mass, 4 * own mass) * dt, gains half of what it takes', () => {
     const sim = quietSim();
     const a = sim.debugSpawn({ ownerId: 'A', mass: 1000, x: cx, y: cy });
     const b = sim.debugSpawn({ ownerId: 'B', mass: 100, x: cx + 60, y: cy });
     freeze(sim);
     sim.contacts(DT);
-    const lossB = Math.min(100, 0.6 * 1000 * DT); // 10
+    const lossB = Math.min(100, 0.6 * Math.min(1000, 4 * 100) * DT); // 4 (capped attacker mass)
     const lossA = Math.min(1000, 0.6 * 100 * DT); // 1
     expect(b.mass).toBeCloseTo(100 - lossB + 0.5 * lossA, 9);
     expect(a.mass).toBeCloseTo(1000 - lossA + 0.5 * lossB, 9);
@@ -62,6 +62,37 @@ describe('contact rule', () => {
     sim.contacts(DT);
     expect(a.mass).toBeCloseTo(b.mass, 9);
     expect(a.mass).toBeCloseTo(200 - 0.6 * 200 * DT * 0.5, 9);
+  });
+
+  it('attacker mass is capped at 4x the victim: a huge ball needs >= ~0.4 s to kill a new ball', () => {
+    for (const huge of [500, 25000, 1e6]) {
+      const sim = quietSim();
+      sim.debugSpawn({ ownerId: 'A', mass: huge, x: cx, y: cy });
+      const b = sim.debugSpawn({ ownerId: 'B', mass: 20, x: cx + 5, y: cy });
+      freeze(sim);
+      let ticks = 0;
+      while (sim.ballsOf('B').length && ticks < 600) {
+        b.x = cx + 5; // stay in contact
+        b.y = cy;
+        sim.step(DT);
+        ticks++;
+      }
+      expect(sim.ballsOf('B').length).toBe(0);
+      expect(ticks * DT).toBeGreaterThanOrEqual(0.4);
+      expect(ticks * DT).toBeLessThan(0.7); // linear drain: the cap uses the mass at fight start
+      expect(sim.players.get('A')!.kills).toBe(1);
+    }
+  });
+
+  it('marks the eater for the swallow animation', () => {
+    const sim = quietSim();
+    const a = sim.debugSpawn({ ownerId: 'A', mass: 5000, x: cx, y: cy });
+    const b = sim.debugSpawn({ ownerId: 'B', mass: 20, x: cx + 5, y: cy });
+    freeze(sim);
+    sim.step(DT);
+    expect(b.swallowerId).toBe(a.id);
+    expect(a.swallowerId).toBe(0);
+    expect(b.contactRef).toBe(20);
   });
 
   it('loss is capped by the victim mass', () => {
@@ -104,7 +135,7 @@ describe('eating and revenge', () => {
     b.x = cx + 20;
     b.y = cy;
     freeze(sim);
-    for (let i = 0; i < 30 && sim.ballsOf('B').length; i++) sim.step(DT);
+    for (let i = 0; i < 90 && sim.ballsOf('B').length; i++) sim.step(DT);
     expect(sim.ballsOf('B').length).toBe(0);
     const eaten = sim.drainEvents().find((e) => e.type === 'eaten');
     expect(eaten && eaten.type === 'eaten' && eaten.killerOwner).toBe('A');
@@ -135,19 +166,19 @@ describe('gifts', () => {
   const gift = (units: number, giftId: number = PLACEHOLDER_GIFT_IDS.rose, coinsPerUnit = 1) =>
     ev({ type: 'gift', giftId, giftName: 'g', coinsPerUnit, units } as never);
 
-  it('mass = coins * units * 25 per delivered update, summed over a streak without double counting', () => {
+  it('mass = coins * units * 5 per delivered update, summed over a streak without double counting', () => {
     const sim = quietSim();
     sim.handleEvent(ev({ type: 'join' }));
     // Bridge delivers a 1 -> 4 -> 7 streak as deltas 1, 3, 3.
     for (const u of [1, 3, 3]) sim.handleEvent(gift(u, PLACEHOLDER_GIFT_IDS.rose, 1));
-    expect(sim.ownerMass('u1')).toBe(20 + 7 * 25);
+    expect(sim.ownerMass('u1')).toBe(20 + 7 * 5);
   });
 
   it('a gift from a user without a ball auto-joins them, then applies the gift', () => {
     const sim = quietSim();
     sim.handleEvent(gift(2, PLACEHOLDER_GIFT_IDS.dash, 5));
     expect(sim.ballsOf('u1').length).toBe(1);
-    expect(sim.ownerMass('u1')).toBe(20 + 5 * 2 * 25);
+    expect(sim.ownerMass('u1')).toBe(20 + 5 * 2 * 5);
     const p = sim.players.get('u1')!;
     expect(p.gifted).toBe(true);
     expect(p.dashUntil).toBeCloseTo(sim.time + 2 * 3, 5); // each unit counts
@@ -160,18 +191,25 @@ describe('gifts', () => {
     sim.balls.length = 0; // pretend it was just eaten
     sim.handleEvent(gift(4));
     expect(sim.ballsOf('u1').length).toBe(0);
+    const q = sim.drainEvents().find((e) => e.type === 'giftQueued');
+    expect(q && q.type === 'giftQueued' && q.when).toBe('respawn');
     for (let i = 0; i < 5 * 60 + 2; i++) sim.step(DT);
     expect(sim.ballsOf('u1').length).toBe(1);
-    expect(sim.ownerMass('u1')).toBeCloseTo(20 + 4 * 25, 5);
+    expect(sim.ownerMass('u1')).toBeCloseTo(20 + 4 * 5, 5);
   });
 
   it('gifts during results are applied in the next round', () => {
     const sim = quietSim();
     sim.debugSetPhase('results');
+    sim.drainEvents();
+    sim.handleEvent(gift(1, PLACEHOLDER_GIFT_IDS.shield, 30));
+    const q = sim.drainEvents().find((e) => e.type === 'giftQueued');
+    expect(q && q.type === 'giftQueued' && `@${q.nickname}: ${q.what} ready ${q.when}`).toBe('@User 1: Shield ready nextRound');
+    sim.players.get('u1')!.carryGifts = [];
     sim.handleEvent(gift(3));
     for (let i = 0; i < CONFIG.round.resultsSec * 60 + 2; i++) sim.step(DT);
     expect(sim.phase).toBe('join');
-    expect(sim.ownerMass('u1')).toBe(20 + 3 * 25);
+    expect(sim.ownerMass('u1')).toBe(20 + 3 * 5);
   });
 
   it('shield and magnet extend (capped at 60 s); spike shots count every unit', () => {
@@ -194,6 +232,29 @@ describe('gifts', () => {
     const hits = sim.drainEvents().filter((e) => e.type === 'spikeShotHit').length;
     expect(fired + 0).toBeGreaterThanOrEqual(1);
     expect(hits + sim.projectiles.length).toBe(3);
+  });
+
+  it('dash is capped at 10 s; black hole gives 5 s + 2 s per extra unit, capped at 10 s', () => {
+    const sim = quietSim();
+    sim.handleEvent(ev({ type: 'join' }));
+    const p = sim.players.get('u1')!;
+    sim.handleEvent(gift(2, PLACEHOLDER_GIFT_IDS.dash, 5));
+    expect(p.dashUntil).toBeCloseTo(sim.time + 6, 5);
+    sim.handleEvent(gift(10, PLACEHOLDER_GIFT_IDS.dash, 5));
+    expect(p.dashUntil).toBeCloseTo(sim.time + 10, 5);
+    sim.handleEvent(gift(1, PLACEHOLDER_GIFT_IDS.blackHole, 1000));
+    expect(p.blackHoleUntil).toBeCloseTo(sim.time + 5, 5);
+    sim.handleEvent(gift(1, PLACEHOLDER_GIFT_IDS.blackHole, 1000));
+    expect(p.blackHoleUntil).toBeCloseTo(sim.time + 10, 5);
+    p.blackHoleUntil = 0;
+    sim.handleEvent(gift(2, PLACEHOLDER_GIFT_IDS.blackHole, 1000));
+    expect(p.blackHoleUntil).toBeCloseTo(sim.time + 7, 5);
+    p.blackHoleUntil = 0;
+    sim.handleEvent(gift(10, PLACEHOLDER_GIFT_IDS.blackHole, 1000));
+    expect(p.blackHoleUntil).toBeCloseTo(sim.time + 10, 5);
+    // Shield and magnet keep the 60 s cap.
+    sim.handleEvent(gift(10, PLACEHOLDER_GIFT_IDS.shield, 30));
+    expect(p.shieldUntil).toBeCloseTo(sim.time + 60, 5);
   });
 
   it('likes: +1 mass each, max 20 per second per user; all likes fill the feast meter', () => {
@@ -349,6 +410,57 @@ describe('round loop', () => {
     for (let i = 5; i < 12; i++) sim.handleEvent(ev({ type: 'join', userId: `r${i}`, nickname: `R${i}` }));
     expect(sim.balls.filter((b) => b.isBot).length).toBe(0);
     expect(sim.balls.length).toBe(12);
+  });
+});
+
+describe('crowding', () => {
+  const arenaArea = Math.PI * CONFIG.arena.radius ** 2;
+  it('scale target: 1 up to 40 % coverage, sqrt(limit / area) above, never below 0.5', () => {
+    expect(crowdScaleTarget(0)).toBe(1);
+    expect(crowdScaleTarget(0.4 * arenaArea)).toBe(1);
+    expect(crowdScaleTarget(0.8 * arenaArea)).toBeCloseTo(Math.SQRT1_2, 9);
+    expect(crowdScaleTarget(1.5 * arenaArea)).toBeCloseTo(Math.sqrt(0.4 / 1.5), 9);
+    expect(crowdScaleTarget(10 * arenaArea)).toBe(0.5);
+  });
+
+  it('100 balls shrink smoothly towards the target; radius scales, mass does not', () => {
+    const sim = quietSim();
+    for (let i = 0; i < 100; i++) {
+      const a = (i / 100) * Math.PI * 2;
+      sim.debugSpawn({ ownerId: `p${i}`, mass: 200, x: cx + Math.cos(a) * 300, y: cy + Math.sin(a) * 300, protectedSec: 999 });
+    }
+    freeze(sim);
+    const target = crowdScaleTarget(100 * Math.PI * radiusForMass(200) ** 2);
+    expect(target).toBeLessThan(1);
+    let prev = sim.sizeScale;
+    for (let i = 0; i < 300; i++) {
+      sim.step(DT);
+      expect(prev - sim.sizeScale).toBeLessThan(0.05); // smooth
+      expect(sim.sizeScale).toBeGreaterThanOrEqual(0.5);
+      prev = sim.sizeScale;
+    }
+    expect(sim.sizeScale).toBeCloseTo(target, 2);
+    const b = sim.balls[0];
+    expect(b.mass).toBe(200);
+    expect(b.radius).toBeCloseTo(radiusForMass(200) * sim.sizeScale, 9);
+  });
+});
+
+describe('pellets', () => {
+  it('target = 150 + 2 * players, max 400', () => {
+    expect(pelletTarget(0)).toBe(150);
+    expect(pelletTarget(10)).toBe(170);
+    expect(pelletTarget(100)).toBe(350);
+    expect(pelletTarget(125)).toBe(400);
+    expect(pelletTarget(500)).toBe(400);
+  });
+
+  it('respawn fills up to the player-dependent target (bots do not count)', () => {
+    const sim = new Sim({ seed: 2, config: { bots: { minBalls: 0 }, spikes: { count: 0 } } as never });
+    sim.debugSetPhase('play');
+    for (let i = 0; i < 50; i++) sim.handleEvent(ev({ type: 'join', userId: `r${i}`, nickname: `R${i}` }));
+    sim.debugSpawn({ ownerId: 'bot:1', mass: 20, x: cx, y: cy, isBot: true, protectedSec: 999 });
+    expect(sim.pelletTarget()).toBe(250);
   });
 });
 

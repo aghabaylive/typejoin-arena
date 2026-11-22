@@ -65,8 +65,12 @@ export const CONFIG = {
   },
 
   contact: {
-    /** Each tick: B.loss = min(B.mass, rate * A.mass * dt). */
+    /**
+     * Each tick: B.loss = min(B.mass, rate * min(A.mass, maxAttackerRatio * B.ref) * dt), where B.ref is
+     * B's mass when the current fight started. With rate 0.6 and ratio 4 a kill takes at least ~0.42 s.
+     */
     rate: 0.6,
+    maxAttackerRatio: 4,
     /** Fraction of the loss that the attacker gains. The rest spills as pellets. */
     gainFraction: 0.5,
     /** Soft separation strength (fraction of overlap resolved per second). */
@@ -78,7 +82,10 @@ export const CONFIG = {
   },
 
   pellets: {
+    /** Normal pellet target = min(maxTarget, target + perPlayer * real players in the arena). */
     target: 150,
+    perPlayer: 2,
+    maxTarget: 400,
     value: 1,
     radius: 7,
     /** Hard cap including spill pellets; beyond it spill mass merges into existing pellets. */
@@ -114,7 +121,7 @@ export const CONFIG = {
   },
 
   gifts: {
-    massPerCoin: 25, // mass = coinsPerUnit * units * massPerCoin
+    massPerCoin: 5, // mass = coinsPerUnit * units * massPerCoin
     /** giftId -> ability. Placeholder ids shared with FakeSource. */
     abilities: {
       [PLACEHOLDER_GIFT_IDS.dash]: 'dash',
@@ -126,8 +133,9 @@ export const CONFIG = {
   },
 
   abilities: {
+    /** Default cap on remaining time for timed abilities (shield, magnet). */
     maxDurationSec: 60,
-    dash: { sec: 3, speedMul: 3 },
+    dash: { sec: 3, speedMul: 3, maxSec: 10 },
     shield: { sec: 10 },
     spikeShot: {
       speed: 950,
@@ -139,7 +147,8 @@ export const CONFIG = {
       maxLifeSec: 4,
     },
     magnet: { sec: 8, range: 400, ballMassRatio: 1 / 3, pelletPull: 520, ballPull: 260 },
-    blackHole: { sec: 5, range: 350, ballMassRatio: 0.5, pelletPull: 900, ballPull: 620 },
+    /** First unit gives `sec`, every further unit +secPerExtraUnit; remaining time capped at maxSec. */
+    blackHole: { sec: 5, secPerExtraUnit: 2, maxSec: 10, range: 350, ballMassRatio: 0.5, pelletPull: 900, ballPull: 620 },
   },
 
   /** Gift legend rows (right side). Order = display order. */
@@ -150,6 +159,17 @@ export const CONFIG = {
     { ability: 'magnet', label: 'Magnet', giftId: PLACEHOLDER_GIFT_IDS.magnet, coins: 500, color: 0xb05bff, glyph: '∩' },
     { ability: 'blackHole', label: 'Black hole', giftId: PLACEHOLDER_GIFT_IDS.blackHole, coins: 1000, color: 0xffc83d, glyph: '●' },
   ] as { ability: AbilityId; label: string; giftId: number; coins: number; color: number; glyph: string }[],
+
+  /** Crowding: when all balls together cover more than maxAreaFrac of the arena, all radii shrink uniformly. */
+  crowding: {
+    maxAreaFrac: 0.4,
+    minScale: 0.5,
+    /** How fast the scale follows its target (1/s, exponential smoothing). */
+    smoothPerSec: 2,
+  },
+
+  /** Toast shown under the top bar when a gift is queued (rejoin cooldown / results screen). */
+  toast: { sec: 2.8, maxVisible: 3 },
 
   round: {
     joinSec: 10,
@@ -210,6 +230,20 @@ export type Config = typeof CONFIG;
 export function radiusForMass(mass: number, c: Config = CONFIG): number {
   const b = c.ball;
   return Math.min(b.maxRadius, b.radiusBase + b.radiusLogScale * Math.log(Math.max(0, mass) / b.radiusLogDiv + 1));
+}
+
+/** Target radius scale for crowding, given the summed unscaled ball area. Pure. */
+export function crowdScaleTarget(totalBallArea: number, c: Config = CONFIG): number {
+  const arenaArea = Math.PI * c.arena.radius * c.arena.radius;
+  const limit = c.crowding.maxAreaFrac * arenaArea;
+  if (totalBallArea <= limit) return 1;
+  return Math.max(c.crowding.minScale, Math.sqrt(limit / totalBallArea));
+}
+
+/** Normal pellet target for the current number of real players. */
+export function pelletTarget(players: number, c: Config = CONFIG): number {
+  const p = c.pellets;
+  return Math.min(p.maxTarget, p.target + p.perPlayer * Math.max(0, players));
 }
 
 export function speedForMass(mass: number, c: Config = CONFIG): number {

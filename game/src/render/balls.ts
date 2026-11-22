@@ -43,6 +43,8 @@ export class BallView {
   wobble = 0;
   wobblePhase = Math.random() * 6.28;
   born: number;
+  /** 0..1 swallow progress (smoothed): pulled into the eater's center and shrunk. */
+  swallowK = 0;
   x = 0;
   y = 0;
   r = 0;
@@ -117,9 +119,21 @@ export class BallLayer {
 
   private drawBall(sim: Sim, b: Ball, v: BallView, alpha: number, now: number, dt: number, t: number): void {
     const p = sim.players.get(b.ownerId);
-    const x = b.px + (b.x - b.px) * alpha;
-    const y = b.py + (b.y - b.py) * alpha;
-    const r = b.radius;
+    let x = b.px + (b.x - b.px) * alpha;
+    let y = b.py + (b.y - b.py) * alpha;
+    let r = b.radius;
+    // Swallow: while a bigger ball eats this one, pull it into the eater's center and shrink it.
+    const eater = b.swallowerId ? sim.ballById(b.swallowerId) : undefined;
+    const target = eater && b.contactRef > 0 ? Math.min(1, Math.max(0, 1 - b.mass / b.contactRef)) : 0;
+    v.swallowK += (target - v.swallowK) * Math.min(1, dt * (target > v.swallowK ? 30 : 6));
+    if (eater && v.swallowK > 0.001) {
+      const k = v.swallowK * (2 - v.swallowK); // ease-out: moves early, settles in the center
+      const ex = eater.px + (eater.x - eater.px) * alpha;
+      const ey = eater.py + (eater.y - eater.py) * alpha;
+      x += (ex - x) * k;
+      y += (ey - y) * k;
+      r *= 1 - 0.75 * k;
+    }
     v.x = x;
     v.y = y;
     v.r = r;
