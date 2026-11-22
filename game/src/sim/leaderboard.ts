@@ -7,10 +7,11 @@ export class Leaderboard {
   constructor(private cfg: Config) {}
 
   /**
-   * @param rankedAlive real players alive at round end, sorted by mass (desc)
-   * @param participants every real player who played this round (for kill points)
+   * Score one window.
+   * @param rankedAlive real players alive at the window's end, sorted by mass (desc)
+   * @param participants every real player who played in the window (for kill points)
    */
-  addRound(rankedAlive: Player[], participants: Player[]): void {
+  addWindow(rankedAlive: Player[], participants: Player[]): void {
     const L = this.cfg.leaderboard;
     const add = (p: Player, pts: number) => {
       if (pts <= 0) return;

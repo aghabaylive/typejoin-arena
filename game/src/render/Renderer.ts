@@ -45,8 +45,6 @@ export class Renderer {
   private world!: Container;
   private shakeT = 0;
   private shakeAmp = 0;
-  /** Sim time when the current round started (round-start respawns skip the "+name" floater). */
-  private roundStartSimTime = -Infinity;
   /** Last "+1 heart" time per ball (throttle). */
   private lastHeart = new Map<number, number>();
 
@@ -173,9 +171,6 @@ export class Renderer {
         if (b) this.floaters.add(`+${formatMass(e.mass)}`, b.x, b.y - b.radius - 10, 40, 0xffd86b, 1.1, -80);
         break;
       }
-      case 'joinQueued':
-        this.toasts.add(`@${e.nickname} joins next round`);
-        break;
       case 'likeHeart': {
         // "+1 ♥" rising from the ball, at most once per second per ball.
         const last = this.lastHeart.get(e.ballId) ?? -Infinity;
@@ -190,7 +185,7 @@ export class Renderer {
         break;
       }
       case 'giftQueued':
-        this.toasts.add(`@${e.nickname}: ${e.what} ready ${e.when === 'nextRound' ? 'next round' : e.when === 'spawn' ? 'on spawn' : 'on respawn'}`);
+        this.toasts.add(`@${e.nickname}: ${e.what} ready ${e.when === 'spawn' ? 'on spawn' : 'on respawn'}`);
         break;
       case 'feast':
         if (e.active) {
@@ -209,9 +204,6 @@ export class Renderer {
       }
       case 'spawn': {
         if (e.isBot) break;
-        // Round start: everyone respawns at once; keep the pop, skip 20+ floating names (they would bury
-        // the NEW ROUND banner). "+name" is for players who join during the round.
-        if (sim.phase === 'play' && sim.time - this.roundStartSimTime < 0.5) break;
         const v = this.viewPos(e.ballId);
         const b = sim.ballById(e.ballId);
         const x = v?.x ?? b?.x, y = v?.y ?? b?.y, r = v?.r ?? b?.radius ?? 30;
@@ -229,12 +221,8 @@ export class Renderer {
         if (v) this.ringFlash(v.x, v.y, v.r, 0xffffff);
         break;
       }
-      case 'phase':
-        if (e.phase === 'storm') this.floaters.add('STORM!', CONFIG.arena.cx, CONFIG.arena.cy, 140, CONFIG.brand.coral, 1.8, -20);
-        // New round: short, non-blocking banner (the world keeps running underneath).
-        if (e.phase === 'play') this.roundStartSimTime = sim.time;
-        if (e.phase === 'play') this.floaters.add('NEW ROUND', CONFIG.arena.cx, CONFIG.arena.cy - 40, 130, CONFIG.brand.yellow, 1.5, -20);
-        this.crownState.owner = null;
+      case 'storm':
+        if (e.stage === 'shrink') this.floaters.add('STORM!', CONFIG.arena.cx, CONFIG.arena.cy, 140, CONFIG.brand.coral, 1.8, -20);
         break;
       default:
         break;

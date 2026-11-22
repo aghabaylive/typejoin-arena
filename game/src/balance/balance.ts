@@ -2,11 +2,12 @@
 /**
  * Headless balance harness: `npm run sim:balance` (from the repo root).
  *
- * Runs the real Sim at maximum speed (no rendering) through its public input (handleEvent) for a
- * number of rounds per viewer-pool scenario and reports dominance / survival metrics.
+ * Runs the real Sim at maximum speed (no rendering) through its public input (handleEvent): continuous
+ * runs (no rounds) per viewer-pool scenario, measured in 5-minute windows (leaderboard.windowSec).
  *
  * Options:
- *   --rounds 20            rounds per scenario
+ *   --runs 3               continuous runs per scenario (seed, seed+1, ...)
+ *   --minutes 30           length of each run
  *   --pools 20,50,100      viewer pool sizes
  *   --label after          JSON goes to docs/balance/<label>.json
  *   --set contact.rate=0.4 config override (repeatable; dotted path, numeric value)
@@ -37,13 +38,14 @@ const MIX = {
 };
 const LIKES_PER_SEC = 20;
 
-interface Args { rounds: number; pools: number[]; label: string; seed: number; overrides: Record<string, unknown> }
+interface Args { runs: number; minutes: number; pools: number[]; label: string; seed: number; overrides: Record<string, unknown> }
 
 function parseArgs(argv: string[]): Args {
-  const a: Args = { rounds: 20, pools: [20, 50, 100], label: 'latest', seed: 1, overrides: {} };
+  const a: Args = { runs: 3, minutes: 30, pools: [20, 50, 100], label: 'latest', seed: 1, overrides: {} };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i], v = argv[i + 1];
-    if (k === '--rounds') a.rounds = Number(v), i++;
+    if (k === '--runs') a.runs = Number(v), i++;
+    else if (k === '--minutes') a.minutes = Number(v), i++;
     else if (k === '--pools') a.pools = v.split(',').map(Number), i++;
     else if (k === '--label') a.label = v, i++;
     else if (k === '--seed') a.seed = Number(v), i++;
@@ -63,25 +65,39 @@ type Role = 'none' | 'rose' | 'doughnut' | 'mid' | 'whale';
 
 interface Scheduled { at: number; fn: () => void }
 
+/** Seconds after the whale's single 1000-coin gift at which its mass is sampled. */
+export const WHALE_CHECKPOINTS = [0, 30, 60, 120, 180, 300, 600];
+
 export interface ScenarioResult {
   pool: number;
-  rounds: number;
+  runs: number;
+  minutes: number;
+  /** Visible crown changes per 5 minutes, every change including to and from "No king yet". */
+  crownChangesPer5Min: number;
+  /** Average top-3 kill counts per window. */
   topKills: number[];
+  /** Kills of each window's top killer / all player kills (summed over windows). */
   topKillerShare: number;
   medianNonGifterLifeSec: number;
   p25NonGifterLifeSec: number;
-  kingChangesPerRound: number;
-  lowestPelletsPlay: number;
-  lowestPelletsStorm: number;
-  /** Where the lowest play-phase pellet count happened. */
-  lowestPelletsPlayAt: string;
-  /** Share of rounds the whale (1000-coin gifter) finishes in the live top 3 by mass. */
-  whaleTop3Rate: number;
-  /** Share of the round time after the whale's 1000-coin gift during which the whale is King. */
-  whaleKingShare: number;
   medianRoseLifeSec: number;
-  avgKillsPerRound: number;
-  avgQueuePeak?: number;
+  /** Share of the run time the whale is in the live top 3 by mass. */
+  whaleTop3Share: number;
+  /** Share of the 5 minutes after the whale's Black Hole during which the whale is King. */
+  whaleKingShareAfterBH: number;
+  /** Whale mass (mean over runs; 0 when dead) at WHALE_CHECKPOINTS seconds after its 1000-coin gift. */
+  whaleMassAfterGift: number[];
+  /** Runs in which the whale had died by each checkpoint (at least once). */
+  whaleDeadBy: number[];
+  /** Median mass of the alive real players at the same checkpoints (reference). */
+  medianPlayerMass: number[];
+  killsPer5Min: number;
+  /** TOP PLAYERS panels shown per run (one per window; a panel waits while a storm is on). */
+  panelsPerRun: number;
+  /** Info only (accepted by design, no target): lowest pellet count outside / during storms. */
+  lowestPelletsCalm: number;
+  lowestPelletsStorm: number;
+  avgQueuePeak: number;
 }
 
 const quantile = (xs: number[], q: number) => {
@@ -91,9 +107,30 @@ const quantile = (xs: number[], q: number) => {
   return s[lo] + (s[hi] - s[lo]) * (pos - lo);
 };
 
-export function runScenario(pool: number, rounds: number, seed: number, overrides: Record<string, unknown>): ScenarioResult {
+interface RunStats {
+  crownChanges: number;
+  windowKills: number[][]; // per window: kills per killer (sorted desc)
+  nonGifterLives: number[];
+  roseLives: number[];
+  whaleTop3Sec: number;
+  whaleKingSec: number;
+  whaleAfterSec: number;
+  whaleMass: number[];
+  whaleDead: boolean[];
+  playerMass: number[];
+  kills: number;
+  panels: number;
+  lowestCalm: number;
+  lowestStorm: number;
+  queuePeak: number;
+}
+
+function runOnce(pool: number, minutes: number, seed: number, overrides: Record<string, unknown>): RunStats {
   const sim = new Sim({ seed, config: overrides as never });
   const rand = makeRng(seed * 7919 + pool);
+  const windowSec = sim.cfg.leaderboard.windowSec;
+  const endAt = minutes * 60;
+  const windows = Math.ceil(endAt / windowSec);
   const ids = Array.from({ length: pool }, (_, i) => `v${i}`);
   const ev = (e: Record<string, unknown>) => sim.handleEvent({ ts: 0, nickname: String(e.userId), ...e } as GameEvent);
   const gift = (userId: string, giftId: number, coinsPerUnit: number, units: number) =>
@@ -102,85 +139,48 @@ export function runScenario(pool: number, rounds: number, seed: number, override
   let queue: Scheduled[] = [];
   const at = (t: number, fn: () => void) => queue.push({ at: t, fn });
 
-  // Per-round bookkeeping.
-  let roles = new Map<string, Role>();
-  let lifeStart = new Map<string, number>();
-  let gaveUp = new Set<string>();
-  let roundKills = new Map<string, number>();
-  let kingChanges = 0;
-  let roundNo = 0;
-
-  const allTopKills: number[][] = [];
-  let totalKills = 0, totalTopKiller = 0;
-  const nonGifterLives: number[] = [];
-  const kingPerRound: number[] = [];
-  let lowestPlay = Infinity, lowestStorm = Infinity;
-  let lowestPlayAt = '';
-  const roseLives: number[] = [];
+  const roles = new Map<string, Role>();
+  const lifeStart = new Map<string, number>();
+  const st: RunStats = {
+    crownChanges: 0, windowKills: [], nonGifterLives: [], roseLives: [], whaleTop3Sec: 0, whaleKingSec: 0, whaleAfterSec: 0,
+    whaleMass: [], whaleDead: [], playerMass: [], kills: 0, panels: 0, lowestCalm: Infinity, lowestStorm: Infinity, queuePeak: 0,
+  };
+  let winKills = new Map<string, number>();
   let whaleId = '';
   let whaleHoleAt = Infinity;
-  let whaleKingSec = 0, whaleAfterSec = 0;
-  let whaleTop3 = 0;
-  let queuePeakSum = 0, queuePeak = 0;
+  let whaleDied = false;
+  let nextCheckpoint = 0;
   let likeAcc = 0;
+  let nextSample = 0;
 
-  const beginRound = () => {
-    roundNo++;
-    queue = [];
-    roles = new Map();
-    lifeStart = new Map();
-    gaveUp = new Set();
-    roundKills = new Map();
-    kingChanges = 0;
-    queuePeak = 0;
-    whaleHoleAt = Infinity;
-    const t0 = sim.time;
-    const R = sim.cfg.round;
-    const end = t0 + R.playSec + R.stormSec - 5;
-    const shuffled = [...ids].sort(() => rand() - 0.5);
-    const nRose = Math.round(pool * 0.1), nMid = Math.round(pool * 0.04), nDough = Math.round(pool * 0.03);
-    shuffled.forEach((id, i) => {
-      const role: Role = i === 0 ? 'whale' : i <= nRose ? 'rose' : i <= nRose + nMid ? 'mid'
-        : i <= nRose + nMid + nDough ? 'doughnut' : 'none';
-      roles.set(id, role);
-      if (role === 'whale') whaleId = id;
-      // No join window: everyone types join during the first seconds of play (previous players respawn on their own).
-      at(t0 + rand() * 8, () => ev({ type: 'join', userId: id }));
-      const when = () => t0 + rand() * (end - t0);
+  // Roles are fixed for the whole run (a viewer's habits do not change every 5 minutes).
+  const shuffled = [...ids].sort(() => rand() - 0.5);
+  const nRose = Math.round(pool * 0.1), nMid = Math.round(pool * 0.04), nDough = Math.round(pool * 0.03);
+  shuffled.forEach((id, i) => {
+    const role: Role = i === 0 ? 'whale' : i <= nRose ? 'rose' : i <= nRose + nMid ? 'mid'
+      : i <= nRose + nMid + nDough ? 'doughnut' : 'none';
+    roles.set(id, role);
+    if (role === 'whale') whaleId = id;
+    // Viewers arrive during the first 2 minutes and type join.
+    at(rand() * 120, () => ev({ type: 'join', userId: id }));
+    // Small gifters send once per window, at a random moment.
+    for (let w = 0; w < windows; w++) {
+      const when = () => w * windowSec + rand() * windowSec;
       if (role === 'rose') at(when(), () => gift(id, MIX.rose.giftId, MIX.rose.coins, 1 + Math.floor(rand() * 5)));
       if (role === 'mid') at(when(), () => gift(id, MIX.mid.giftId, MIX.mid.coins, 1));
       if (role === 'doughnut') at(when(), () => gift(id, MIX.doughnut.giftId, MIX.doughnut.coins, 1));
-      if (role === 'whale') {
-        at(when(), () => gift(id, MIX.whale500.giftId, MIX.whale500.coins, 1));
-        at(when(), () => {
-          whaleHoleAt = sim.time;
-          gift(id, MIX.whale1000.giftId, MIX.whale1000.coins, 1);
-        });
-      }
-    });
-  };
-
-  const endRound = () => {
-    const end = sim.time;
-    for (const [id, t] of lifeStart) {
-      // censored at round end
-      if (roles.get(id) === 'none') nonGifterLives.push(end - t);
-      else if (roles.get(id) === 'rose') roseLives.push(end - t);
     }
-    if (sim.topOwners(3).some((o) => o.ownerId === whaleId)) whaleTop3++;
-    const kills = [...roundKills.values()].sort((a, b) => b - a);
-    const sum = kills.reduce((s, k) => s + k, 0);
-    allTopKills.push([kills[0] ?? 0, kills[1] ?? 0, kills[2] ?? 0]);
-    totalKills += sum;
-    totalTopKiller += kills[0] ?? 0;
-    kingPerRound.push(kingChanges);
-    queuePeakSum += queuePeak;
-  };
+    if (role === 'whale') {
+      at(60 + rand() * 180, () => gift(id, MIX.whale500.giftId, MIX.whale500.coins, 1));
+      // A single 1000-coin gift (Black Hole), then nothing: does decay bring the whale back down?
+      at(300 + rand() * 120, () => {
+        whaleHoleAt = sim.time;
+        gift(id, MIX.whale1000.giftId, MIX.whale1000.coins, 1);
+      });
+    }
+  });
 
-  let lastPhase = sim.phase;
-  beginRound();
-  while (roundNo <= rounds) {
-    // Scheduled viewer actions.
+  while (sim.time < endAt) {
     if (queue.length) {
       const due = queue.filter((s) => s.at <= sim.time);
       if (due.length) {
@@ -188,103 +188,131 @@ export function runScenario(pool: number, rounds: number, seed: number, override
         for (const s of due) s.fn();
       }
     }
-    // Steady likes (not during results).
-    if (sim.phase !== 'results') {
-      likeAcc += LIKES_PER_SEC * DT;
-      while (likeAcc >= 5) {
-        likeAcc -= 5;
-        ev({ type: 'like', userId: ids[Math.floor(rand() * pool)], count: 5 });
-      }
+    likeAcc += LIKES_PER_SEC * DT;
+    while (likeAcc >= 5) {
+      likeAcc -= 5;
+      ev({ type: 'like', userId: ids[Math.floor(rand() * pool)], count: 5 });
     }
     sim.step(DT);
-    // New round (results -> play): reset per-round bookkeeping BEFORE this step's spawn events are read,
-    // so players auto-respawned at the round start are counted.
-    if (sim.phase === 'play' && lastPhase === 'results') beginRound();
     for (const e of sim.drainEvents()) {
       if (e.type === 'spawn' && !e.isBot && roles.has(e.ownerId) && !lifeStart.has(e.ownerId)) lifeStart.set(e.ownerId, sim.time);
       else if (e.type === 'eaten' && e.final) {
         const start = lifeStart.get(e.ownerId);
         if (start !== undefined) {
-          if (roles.get(e.ownerId) === 'none') nonGifterLives.push(sim.time - start);
-          else if (roles.get(e.ownerId) === 'rose') roseLives.push(sim.time - start);
+          if (roles.get(e.ownerId) === 'none') st.nonGifterLives.push(sim.time - start);
+          else if (roles.get(e.ownerId) === 'rose') st.roseLives.push(sim.time - start);
           lifeStart.delete(e.ownerId);
         }
-        if (e.killerOwner) roundKills.set(e.killerOwner, (roundKills.get(e.killerOwner) ?? 0) + 1);
-        // Viewer reaction: 30 % give up for this round, the rest type join again after 5-30 s.
-        if (roles.has(e.ownerId) && sim.combatEnabled()) {
-          if (rand() < 0.3) gaveUp.add(e.ownerId);
-          else {
-            const id = e.ownerId;
-            at(sim.time + 5.05 + rand() * 25, () => {
-              if (sim.combatEnabled() && !gaveUp.has(id)) ev({ type: 'join', userId: id });
-            });
-          }
+        if (e.ownerId === whaleId && sim.time >= whaleHoleAt) whaleDied = true;
+        if (e.killerOwner && roles.has(e.killerOwner)) {
+          winKills.set(e.killerOwner, (winKills.get(e.killerOwner) ?? 0) + 1);
+          st.kills++;
         }
-      } else if (e.type === 'kingChanged' && e.from && e.to && sim.combatEnabled()) kingChanges++;
+        // Viewer reaction: 30 % leave for 2-6 minutes, the rest type join again after 5-30 s.
+        if (roles.has(e.ownerId)) {
+          const id = e.ownerId;
+          const back = rand() < 0.3 ? 120 + rand() * 240 : 5.05 + rand() * 25;
+          at(sim.time + back, () => ev({ type: 'join', userId: id }));
+        }
+      } else if (e.type === 'kingChanged') st.crownChanges++;
+      else if (e.type === 'leaderboard') st.panels++;
     }
-    if (sim.combatEnabled()) {
-      if (sim.phase === 'play' && sim.pellets.length < lowestPlay) {
-        lowestPlay = sim.pellets.length;
-        lowestPlayAt = `play ${sim.phaseTimeLeft().toFixed(0)}s left, ${sim.balls.length} balls`;
+    // Window boundaries for kill stats (fixed 5-minute buckets).
+    if (Math.floor(sim.time / windowSec) > st.windowKills.length && st.windowKills.length < windows) {
+      st.windowKills.push([...winKills.values()].sort((a, b) => b - a));
+      winKills = new Map();
+    }
+    if (sim.stormActive()) st.lowestStorm = Math.min(st.lowestStorm, sim.pellets.length);
+    else st.lowestCalm = Math.min(st.lowestCalm, sim.pellets.length);
+    st.queuePeak = Math.max(st.queuePeak, sim.joinQueue.length);
+    // Once per second: whale standing.
+    if (sim.time >= nextSample) {
+      nextSample += 1;
+      if (sim.topOwners(3).some((o) => o.ownerId === whaleId)) st.whaleTop3Sec += 1;
+      if (sim.time > whaleHoleAt && sim.time <= whaleHoleAt + 300) {
+        st.whaleAfterSec += 1;
+        if (sim.kingOwner === whaleId) st.whaleKingSec += 1;
       }
-      if (sim.phase === 'storm') lowestStorm = Math.min(lowestStorm, sim.pellets.length);
-      const q = (sim as unknown as { joinQueue?: unknown[] }).joinQueue;
-      if (q) queuePeak = Math.max(queuePeak, q.length);
     }
-    // Whale crown time after the 1000-coin gift (until the round ends).
-    if (sim.phase !== 'results' && sim.time > whaleHoleAt) {
-      whaleAfterSec += DT;
-      if (sim.kingOwner === whaleId) whaleKingSec += DT;
-    }
-    if (sim.phase !== lastPhase) {
-      if (sim.phase === 'results') endRound();
-      lastPhase = sim.phase;
+    // Whale mass curve after the 1000-coin gift.
+    if (nextCheckpoint < WHALE_CHECKPOINTS.length && sim.time >= whaleHoleAt + WHALE_CHECKPOINTS[nextCheckpoint]) {
+      st.whaleMass.push(sim.ownerMass(whaleId));
+      st.whaleDead.push(whaleDied);
+      const alive = sim.topOwners(Infinity).map((o) => o.mass);
+      st.playerMass.push(quantile(alive, 0.5));
+      nextCheckpoint++;
     }
   }
+  if (winKills.size || st.windowKills.length < windows) st.windowKills.push([...winKills.values()].sort((a, b) => b - a));
+  for (const [id, t] of lifeStart) {
+    // censored at the end of the run
+    if (roles.get(id) === 'none') st.nonGifterLives.push(endAt - t);
+    else if (roles.get(id) === 'rose') st.roseLives.push(endAt - t);
+  }
+  return st;
+}
 
+export function runScenario(pool: number, runs: number, minutes: number, seed: number, overrides: Record<string, unknown>): ScenarioResult {
+  const all = Array.from({ length: runs }, (_, i) => runOnce(pool, minutes, seed + i, overrides));
   const avg = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / (xs.length || 1);
-  const top = [0, 1, 2].map((k) => avg(allTopKills.map((r) => r[k])));
+  const windows = all.flatMap((r) => r.windowKills);
+  const totalKills = windows.reduce((s, w) => s + w.reduce((a, b) => a + b, 0), 0);
+  const topKiller = windows.reduce((s, w) => s + (w[0] ?? 0), 0);
+  const per5 = (n: number) => n / (runs * minutes / 5);
+  const runSec = minutes * 60;
   return {
     pool,
-    rounds,
-    topKills: top.map((x) => +x.toFixed(1)),
-    topKillerShare: +(totalKills ? totalTopKiller / totalKills : 0).toFixed(3),
-    medianNonGifterLifeSec: +quantile(nonGifterLives, 0.5).toFixed(1),
-    p25NonGifterLifeSec: +quantile(nonGifterLives, 0.25).toFixed(1),
-    kingChangesPerRound: +avg(kingPerRound).toFixed(2),
-    lowestPelletsPlay: lowestPlay === Infinity ? 0 : lowestPlay,
-    lowestPelletsStorm: lowestStorm === Infinity ? 0 : lowestStorm,
-    lowestPelletsPlayAt: lowestPlayAt,
-    whaleTop3Rate: +(whaleTop3 / rounds).toFixed(3),
-    whaleKingShare: +(whaleAfterSec ? whaleKingSec / whaleAfterSec : 0).toFixed(3),
-    medianRoseLifeSec: +quantile(roseLives, 0.5).toFixed(1),
-    avgKillsPerRound: +(totalKills / rounds).toFixed(1),
-    avgQueuePeak: +(queuePeakSum / rounds).toFixed(1),
+    runs,
+    minutes,
+    crownChangesPer5Min: +per5(all.reduce((s, r) => s + r.crownChanges, 0)).toFixed(2),
+    topKills: [0, 1, 2].map((k) => +avg(windows.map((w) => w[k] ?? 0)).toFixed(1)),
+    topKillerShare: +(totalKills ? topKiller / totalKills : 0).toFixed(3),
+    medianNonGifterLifeSec: +quantile(all.flatMap((r) => r.nonGifterLives), 0.5).toFixed(1),
+    p25NonGifterLifeSec: +quantile(all.flatMap((r) => r.nonGifterLives), 0.25).toFixed(1),
+    medianRoseLifeSec: +quantile(all.flatMap((r) => r.roseLives), 0.5).toFixed(1),
+    whaleTop3Share: +(avg(all.map((r) => r.whaleTop3Sec)) / runSec).toFixed(3),
+    whaleKingShareAfterBH: +(all.reduce((s, r) => s + r.whaleKingSec, 0) / (all.reduce((s, r) => s + r.whaleAfterSec, 0) || 1)).toFixed(3),
+    whaleMassAfterGift: WHALE_CHECKPOINTS.map((_, i) => Math.round(avg(all.map((r) => r.whaleMass[i] ?? 0)))),
+    whaleDeadBy: WHALE_CHECKPOINTS.map((_, i) => all.filter((r) => r.whaleDead[i]).length),
+    medianPlayerMass: WHALE_CHECKPOINTS.map((_, i) => Math.round(avg(all.map((r) => r.playerMass[i] ?? 0)))),
+    killsPer5Min: +per5(all.reduce((s, r) => s + r.kills, 0)).toFixed(1),
+    panelsPerRun: +avg(all.map((r) => r.panels)).toFixed(1),
+    lowestPelletsCalm: Math.min(...all.map((r) => r.lowestCalm)),
+    lowestPelletsStorm: Math.min(...all.map((r) => r.lowestStorm)),
+    avgQueuePeak: +avg(all.map((r) => r.queuePeak)).toFixed(1),
   };
+}
+
+function table(head: string[], rows: string[][]): string {
+  const w = head.map((h, i) => Math.max(h.length, ...rows.map((r) => r[i].length)));
+  const line = (cells: string[]) => '| ' + cells.map((c, i) => c.padEnd(w[i])).join(' | ') + ' |';
+  return [line(head), '|' + w.map((n) => '-'.repeat(n + 2)).join('|') + '|', ...rows.map(line)].join('\n');
 }
 
 function main(): void {
   const args = parseArgs(process.argv.slice(2));
   const results: ScenarioResult[] = [];
   const t0 = Date.now();
-  for (const pool of args.pools) results.push(runScenario(pool, args.rounds, args.seed, args.overrides));
+  for (const pool of args.pools) results.push(runScenario(pool, args.runs, args.minutes, args.seed, args.overrides));
   const secs = ((Date.now() - t0) / 1000).toFixed(1);
   const pct = (x: number) => `${(x * 100).toFixed(0)}%`;
-  const head = ['viewers', 'top-3 kills', 'top killer share', 'life median non-gift', 'p25', 'life median Rose', 'King chg/round', 'whale top 3', 'whale King after BH', 'min pellets play', 'min pellets storm', 'kills/round'];
-  const rows = results.map((r) => [
-    String(r.pool), r.topKills.join(' / '), pct(r.topKillerShare), `${r.medianNonGifterLifeSec}s`, `${r.p25NonGifterLifeSec}s`,
-    `${r.medianRoseLifeSec}s`, String(r.kingChangesPerRound), pct(r.whaleTop3Rate), pct(r.whaleKingShare),
-    String(r.lowestPelletsPlay), String(r.lowestPelletsStorm), String(r.avgKillsPerRound),
-  ]);
-  const w = head.map((h, i) => Math.max(h.length, ...rows.map((r) => r[i].length)));
-  const line = (cells: string[]) => '| ' + cells.map((c, i) => c.padEnd(w[i])).join(' | ') + ' |';
-  console.log(`\nbalance: ${args.rounds} rounds/scenario, seed ${args.seed}, overrides ${JSON.stringify(args.overrides)} (${secs}s)`);
-  console.log(line(head));
-  console.log('|' + w.map((n) => '-'.repeat(n + 2)).join('|') + '|');
-  for (const r of rows) console.log(line(r));
+  console.log(`\nbalance: ${args.runs} x ${args.minutes} min continuous per scenario, seed ${args.seed}, overrides ${JSON.stringify(args.overrides)} (${secs}s)`);
+  console.log(table(
+    ['viewers', 'crown chg/5 min', 'top-3 kills/window', 'top killer share', 'life median non-gift', 'p25', 'life median Rose', 'whale top 3', 'whale King 5 min after BH', 'kills/5 min', 'panels/run', 'min pellets calm / storm (info)'],
+    results.map((r) => [
+      String(r.pool), String(r.crownChangesPer5Min), r.topKills.join(' / '), pct(r.topKillerShare), `${r.medianNonGifterLifeSec}s`,
+      `${r.p25NonGifterLifeSec}s`, `${r.medianRoseLifeSec}s`, pct(r.whaleTop3Share), pct(r.whaleKingShareAfterBH),
+      String(r.killsPer5Min), String(r.panelsPerRun), `${r.lowestPelletsCalm} / ${r.lowestPelletsStorm}`,
+    ]),
+  ));
+  console.log(`\nwhale mass after its single 1000-coin gift (mean over runs; 0 = dead; deaths so far in brackets) vs median alive player:`);
+  console.log(table(
+    ['viewers', ...WHALE_CHECKPOINTS.map((s) => `+${s >= 60 ? `${s / 60}m` : `${s}s`}`)],
+    results.map((r) => [String(r.pool), ...r.whaleMassAfterGift.map((m, i) => `${m} [${r.whaleDeadBy[i]}] / ${r.medianPlayerMass[i]}`)]),
+  ));
   const out = resolve(dirname(fileURLToPath(import.meta.url)), '../../../docs/balance', `${args.label}.json`);
   mkdirSync(dirname(out), { recursive: true });
-  writeFileSync(out, JSON.stringify({ label: args.label, date: new Date().toISOString(), rounds: args.rounds, seed: args.seed, overrides: args.overrides, results }, null, 2) + '\n');
+  writeFileSync(out, JSON.stringify({ label: args.label, date: new Date().toISOString(), runs: args.runs, minutes: args.minutes, seed: args.seed, overrides: args.overrides, results }, null, 2) + '\n');
   console.log(`saved ${out}`);
 }
 

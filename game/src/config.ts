@@ -199,16 +199,21 @@ export const CONFIG = {
     legend: 'full' as LegendMode,
   },
 
-  /** Toast shown under the top bar when a gift is queued (rejoin cooldown / results screen). */
+  /** Toast shown under the top bar when a gift is queued (rejoin cooldown / arena full). */
   toast: { sec: 2.8, maxVisible: 3 },
 
-  round: {
-    playSec: 150,
-    stormSec: 60,
-    resultsSec: 15,
-    stormMinRadiusFrac: 0.5,
-    stormDamagePerSec: 0.05, // 5 % of mass / s outside the safe zone
-    finalCountdownSec: 10,
+  /**
+   * Periodic storm event (the arena never resets): every everySec the safe zone shrinks to minRadiusFrac over
+   * shrinkSec, holds for holdSec, then expands back over expandSec. "STORM INCOMING" shows warnSec before it.
+   */
+  storm: {
+    everySec: 240,
+    warnSec: 10,
+    shrinkSec: 30,
+    holdSec: 15,
+    expandSec: 10,
+    minRadiusFrac: 0.5,
+    damagePerSec: 0.05, // 5 % of mass / s outside the safe zone
   },
 
   bots: {
@@ -217,11 +222,18 @@ export const CONFIG = {
     spawnIntervalSec: 0.5,
   },
 
+  /**
+   * Session points, scored per window: at the end of each window the alive players get placement points by
+   * mass, plus pointsPerKill per kill in the window. A non-blocking "TOP PLAYERS" panel shows for panelSec.
+   * The panel never overlaps a storm (or its warning): it waits until the storm is over.
+   */
   leaderboard: {
+    windowSec: 300,
+    panelSec: 8,
+    panelKillers: 3,
     placePoints: [10, 7, 5],
     top10Points: 2,
     pointsPerKill: 1,
-    showTop: 5,
   },
 
   revenge: { sec: 60 },

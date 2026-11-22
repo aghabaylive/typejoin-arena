@@ -24,7 +24,7 @@ Fake viewers get generated illustrated avatars (made locally from their id; neve
 2. Click **Add N viewers** with N = 30.
 3. Click **Lively clip preset**. This turns on background joins, likes and gifts.
 4. During play, fire a Black Hole and a few Spike Shots by hand.
-5. Players from the previous round come back on their own at the start of the next round. Newcomers join any time.
+5. The arena runs nonstop: a storm every 4 minutes and a TOP PLAYERS panel every 5 minutes. Eaten viewers type join again.
 
 ## Real TikTok LIVE
 
@@ -34,7 +34,7 @@ SOURCE=tiktok TIKTOK_USERNAME=<account> npm run dev
 ```
 
 - **Connection:** the bridge connects with tiktok-live-connector v2 and reconnects with exponential backoff (2 s doubling up to 60 s).
-- **Game pause:** before the stream has ever gone live the game shows "Waiting for LIVE...". While it is reconnecting it shows "Reconnecting...", and a host pause shows "Paused, back soon". In every case the world and the round timer stop. After the stream ends it shows "LIVE ended", and the bridge checks every 60 s for the account to go live again.
+- **Game pause:** before the stream has ever gone live the game shows "Waiting for LIVE...". While it is reconnecting it shows "Reconnecting...", and a host pause shows "Paused, back soon". In every case the world stops. After the stream ends it shows "LIVE ended", and the bridge checks every 60 s for the account to go live again.
 - **Errors:** signing and rate-limit errors from the Euler Stream sign server are logged clearly. Without `SIGN_API_KEY` the free community tier is used.
 - **Event mapping:**
   - chat becomes chat; join words become join through the normalizer.
@@ -47,7 +47,7 @@ SOURCE=tiktok TIKTOK_USERNAME=<account> npm run dev
 
 ### Host panel: http://localhost:8787/host (local machine only)
 - Alive players with picture and name, and a **Remove and ban** button. Bans are stored in `data/bans.json`, and banned users' events are dropped by the bridge, so they can never rejoin. Banned users are listed with an Unban button.
-- Pause, resume and restart round.
+- Pause, resume, and **Reset arena** (emergency only: removes every ball; everyone types join again; gifts waiting to be applied are kept).
 - **Gift legend toggle:** "Full legend", or "Off". Off leaves the bottom-right zone empty for TikTok LIVE Studio's Viewer Wishes bar and shows "Any gift = grow" under the top bar. The default is `CONFIG.ui.legend` (`"full"`). The bridge re-applies the last choice when the game reconnects.
 - Stats: event counts, delays, avatar cache and source errors.
 - **Name filter:** put words in `data/name-filter.json` as `{ "words": ["..."] }`, or in the `NAME_FILTER` env var (comma separated). A nickname containing any of them is shown as "player". Matching ignores case, accents, separators and common digit swaps (0 for o, 1 for i, 3 for e, and so on).
@@ -69,7 +69,7 @@ Reads the room's gift list and writes `shared/gift-catalog.json` (id, name, coin
 ## Balance harness
 
 ```bash
-npm run sim:balance                       # 20 rounds x viewer pools 20/50/100, headless
+npm run sim:balance                       # 3 x 30-min continuous runs x viewer pools 20/50/100, headless
 npm run sim:balance -- --label try1 --set contact.rate=0.2 --set ball.decayPerSec=0.02
 ```
 
@@ -110,20 +110,22 @@ game/    Vite + PixiJS v8
 
 ## Rule notes (choices made where the spec was open)
 - A chat message that matches a join alias becomes a `join` event *instead of* a `chat` event.
-- There is no join window: a round is play (2:30), then storm (1:00), then results (15 s), and the next round starts right away with a short "NEW ROUND" banner. Viewers can type join at any time.
-- At the start of a round, everyone from the previous round who was alive or waiting to rejoin (in the rejoin cooldown, in the queue, or with gifts waiting) respawns automatically. They get starting mass and the normal 3 s spawn protection. Joins typed during the results screen are queued, shown as "@name joins next round", and spawn when the round starts.
+- No rounds: the arena runs nonstop (no round timer, results screen or reset). Viewers type join at any time; eaten players type join again after the 5 s rejoin cooldown (nobody respawns on their own).
+- Storm event every 4 minutes (`storm.*`): "STORM INCOMING" 10 s before, then the safe zone shrinks to 50 % over 30 s, holds 15 s and expands back over 10 s. The top bar shows "STORM 0:32" (coral) while it is on, otherwise the number of players alive ("34 playing").
+- Scoring windows of 5 minutes (`leaderboard.windowSec`): at the end of each, the alive players get placement points by mass (10/7/5, 2 for 4th-10th), plus 1 per kill in the window (session points, memory only). A non-blocking "TOP PLAYERS" panel shows for 8 s over the lower part of the arena: the King with reign time, the window's top 3 killers, and its biggest free player (peak mass in a life without a gift). The panel never shows during a storm or its warning; it waits until the storm is over (with the default 4/5-minute cycles this happens every 20 minutes).
+- Follow and share give +50 once per window.
 - Likes: 1 like = +0.1 mass, at most +1 mass per second per user (`likes.massPerLike`, `likes.maxMassPerSecPerUser`). Free likes are therefore always weaker than a Rose (+5). Each time a player's like mass crosses a whole point, a small "+1 ♥" rises from their ball. All likes still fill the shared Food Rain meter.
-- A gift sent during the 5 s rejoin cooldown is queued. The ball auto-spawns when the cooldown ends, then the gift is applied. Gifts sent during the results screen are applied at the start of the next round, so no gift is ever lost. In both cases a toast under the top bar confirms it (e.g. "@name: Shield ready next round").
+- A gift sent during the 5 s rejoin cooldown is queued. The ball auto-spawns when the cooldown ends, then the gift is applied. A gift from a viewer without a ball auto-joins them (front of the queue when the arena is full), so no gift is ever lost. A toast under the top bar confirms a waiting gift (e.g. "@name: Shield ready on respawn").
 - Gifts give 5 mass per coin.
 - Contact damage: `B.loss = min(B.mass, rate * min(A.mass, 4 * B.ref) * dt)` with `rate` 0.15, where `B.ref` is B's mass when the fight started (held while contact continues). Using the start-of-fight mass keeps the drain linear, so even a huge ball needs about 1.7 s (`1 / (rate * 4)`) to finish a fresh ball; a cap based on B's *current* mass would decay exponentially and never quite finish. While a bigger ball eats a smaller one, the victim is drawn being pulled into the eater's center.
 - One mouth at a time: a ball damages only one victim, the contact it has overlapped longest, and keeps it until it dies or contact breaks. Its other contacts only push. After a kill the eater digests for 1.5 s: it deals no damage but takes damage normally. Split pieces are separate balls, so each piece has its own mouth.
-- Alive cap: at most 60 real players have balls. Further joins wait in a FIFO queue, shown in the top bar ("Queue: N", then the next 3 names in turn). A freed slot spawns the next in line. A gift from a queued (or not yet joined) viewer moves them to the front and applies when they spawn. Players still queued at the end of a round spawn first in the next one.
+- Alive cap: at most 60 real players have balls. Further joins wait in a FIFO queue, shown in the top bar ("Queue: N", then the next 3 names in turn). A freed slot spawns the next in line. A gift from a queued (or not yet joined) viewer moves them to the front and applies when they spawn.
 - Storm: Magnet and Black Hole ranges scale with the safe radius (`range * safeRadius / arenaRadius`). Pellets respawn only inside the safe zone, at up to 300/s.
 - Mass decay above 500: 1 %/s.
 - Crowding: when all balls together cover more than 40 % of the arena (during the storm: of the current safe zone), every radius shrinks by the same factor (smoothly, never below 0.5x). Rules use mass; only drawn and collision size change.
 - Pellet target = 150 + 2 per real player in the arena, max 400.
 - Shield and Magnet extend per unit, capped at 60 s. Dash extends per unit, capped at 10 s. Black hole gives 5 s for the first unit and +2 s per extra unit, capped at 10 s.
 - Split pieces share their owner's ability timers. Kills and revenge count only when the owner's last piece dies. Pieces merge on contact after 12 s, and are forced together 3 s after that.
-- The storm shrinks a safe zone inside the arena. Balls can still enter the red ring, but they take 5 %/s damage there.
+- The storm event shrinks a safe zone inside the arena. Balls can still enter the red ring, but they take 5 %/s damage there.
 - Live top 3, King, and titles consider real players only. Bots can eat and get kills, but never win titles.
-- King: no King while the biggest player has under 100 mass. A challenger takes the crown after having 10 % more mass than the King for 1.5 s continuously. The screen shakes on a King change only when the new King has 1000+ mass.
+- King: no King while the biggest player has under 100 mass; when there is no King, the first player to reach 100 mass is crowned immediately. The King card in the top bar shows the reign time. A challenger takes the crown after having 10 % more mass than the King for 1.5 s continuously. The screen shakes on a King change only when the new King has 1000+ mass.

@@ -1,8 +1,10 @@
 import type { AbilityId } from '../config';
 
 export type Temperament = 'bold' | 'cautious';
-/** Round: play -> storm -> results -> play ... (no join window: joining is possible at any time). */
-export type Phase = 'play' | 'storm' | 'results';
+/** The arena runs nonstop; 'storm' while the periodic storm event is active. */
+export type Phase = 'play' | 'storm';
+/** Periodic storm: calm -> warn ("STORM INCOMING") -> shrink -> hold -> expand -> calm. */
+export type StormStage = 'calm' | 'warn' | 'shrink' | 'hold' | 'expand';
 export type AiMode = 'flee' | 'chase' | 'pellet' | 'wander' | 'dash' | 'storm' | 'merge';
 
 export interface Ball {
@@ -64,35 +66,32 @@ export interface Player {
   nickname: string;
   avatarUrl?: string;
   isBot: boolean;
-  // round-scoped
+  // per scoring window (leaderboard.windowSec)
   kills: number;
-  gifted: boolean;
   followUsed: boolean;
   shareUsed: boolean;
+  /** Had a ball at some point in the current window (gets kill points). */
+  activeInWindow: boolean;
+  /** Biggest mass this window while not boosted by a gift in the same life ("best free player"). */
+  freePeak: number;
+  /** Sent a gift during the current life (reset on spawn). */
+  giftedThisLife: boolean;
   rejoinAt: number;
   revengeTarget: string | null;
   revengeUntil: number;
   likeWindowStart: number;
   /** Like mass granted in the current 1 s window (capped by likes.maxMassPerSecPerUser). */
   likeWindowMass: number;
-  /** Like mass this round (drives the "+1 heart" feedback on each whole point). */
+  /** Total like mass (drives the "+1 heart" feedback on each whole point). */
   likeMass: number;
-  /** Round in which this user last got a "joins next round" toast. */
-  joinToastRound: number;
   /** Owner-level ability timers (apply to all of the owner's pieces). */
   shieldUntil: number;
   magnetUntil: number;
   dashUntil: number;
   blackHoleUntil: number;
   dashTargetId: number | null;
-  /** Abilities waiting for the play phase. */
-  pendingAbilities: { ability: AbilityId; units: number }[];
-  /** Gifts waiting for the player to (re)spawn (rejoin cooldown). */
+  /** Gifts waiting for the player to (re)spawn (rejoin cooldown / arena full). */
   pendingGifts: QueuedGift[];
-  /** Gifts / join sent during results: applied at the next round's start. */
-  carryGifts: QueuedGift[];
-  queuedJoin: boolean;
-  everJoinedThisRound: boolean;
 }
 
 export type PelletKind = 'normal' | 'spill' | 'feast';
@@ -143,16 +142,19 @@ export interface LeaderRow {
   points: number;
 }
 
-export interface RoundResults {
-  roundNo: number;
-  king: TitleEntry | null;
-  killer: TitleEntry | null;
+/** The non-blocking "TOP PLAYERS" panel shown at the end of each scoring window. */
+export interface LeaderPanel {
+  windowNo: number;
+  /** Current King; value = mass, reignSec = time on the throne so far. */
+  king: (TitleEntry & { reignSec: number }) | null;
+  /** Top killers of the window (value = kills), most first; only players with at least one kill. */
+  killers: TitleEntry[];
+  /** Biggest free (non-gift-boosted) player of the window; value = peak mass. */
   bestFree: TitleEntry | null;
-  top: LeaderRow[];
 }
 
 export type SimEvent =
-  | { type: 'phase'; phase: Phase; roundNo: number }
+  | { type: 'storm'; stage: StormStage }
   | { type: 'spawn'; ballId: number; ownerId: string; isBot: boolean }
   | { type: 'botLeft'; ballId: number; x: number; y: number }
   | { type: 'eaten'; ballId: number; ownerId: string; killerOwner: string | null; x: number; y: number; radius: number; mass: number; final: boolean }
@@ -163,7 +165,6 @@ export type SimEvent =
   | { type: 'kingChanged'; from: string | null; to: string | null }
   | { type: 'feast'; active: boolean }
   | { type: 'gift'; ownerId: string; mass: number; giftName?: string }
-  | { type: 'giftQueued'; ownerId: string; nickname: string; what: string; when: 'nextRound' | 'respawn' | 'spawn' }
-  | { type: 'joinQueued'; ownerId: string; nickname: string }
+  | { type: 'giftQueued'; ownerId: string; nickname: string; what: string; when: 'respawn' | 'spawn' }
   | { type: 'likeHeart'; ownerId: string; ballId: number }
-  | { type: 'results'; results: RoundResults };
+  | { type: 'leaderboard'; panel: LeaderPanel };

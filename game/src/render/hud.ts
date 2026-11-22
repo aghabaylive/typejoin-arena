@@ -11,7 +11,7 @@ export const JOIN_CTA = 'Type JOIN to play - anytime';
 
 /**
  * Top band (15-21 % of the height), two rows.
- * Row 1: phase + timer (left), King card (right).
+ * Row 1: players alive, or "STORM 0:32" during the storm (left); King card with reign time (right).
  * Row 2: "Type JOIN to play" pill (left; larger + pulsing in the join window; shows the queue when full),
  *        like meter "Likes -> FOOD RAIN" (right).
  */
@@ -26,6 +26,7 @@ export class Hud {
   private kingAv = new Sprite();
   private kingName: Text;
   private kingMass: Text;
+  private kingReign: Text;
   private noKing: Text;
   private kingKey = '';
   private kingVer = -1;
@@ -49,7 +50,7 @@ export class Hud {
     );
     const row1 = top + 31, row2 = top + 86;
 
-    // Row 1 left: phase + timer
+    // Row 1 left: players alive / storm timer
     this.timer = label('', 52, B.yellow);
     this.timer.anchor.set(0, 0.5);
     this.timer.position.set(46, row1);
@@ -69,7 +70,9 @@ export class Hud {
     this.kingName.anchor.set(0, 0.5);
     this.kingMass = label('', 36, B.yellow);
     this.kingMass.anchor.set(0, 0.5);
-    this.king.addChild(this.kingCrown, this.kingAv, this.kingRing, this.kingName, this.kingMass);
+    this.kingReign = body('', 28, B.muted, '800');
+    this.kingReign.anchor.set(0, 0.5);
+    this.king.addChild(this.kingCrown, this.kingAv, this.kingRing, this.kingName, this.kingMass, this.kingReign);
     this.king.position.set(0, row1);
     this.noKing = body('No king yet', 30, B.muted, '700');
     this.noKing.anchor.set(1, 0.5);
@@ -101,15 +104,12 @@ export class Hud {
     const row2 = top + 86;
     const phase = sim.phase;
 
-    // Phase + timer
-    // During results the timer slot says when the next round starts (separate from the join call-to-action).
-    const t = phase === 'results'
-      ? `Next round in ${Math.max(1, Math.ceil(sim.phaseTimeLeft()))}s`
-      : `${phase === 'storm' ? 'STORM' : 'PLAY'} ${formatTime(sim.phaseTimeLeft())}`;
+    // Players alive (no round timer: the arena runs nonstop); the storm event shows its own timer.
+    const t = phase === 'storm' ? `STORM ${formatTime(sim.stormTimeLeft())}` : `${sim.aliveRealOwners()} playing`;
     if (this.timer.text !== t) this.timer.text = t;
     if (phase !== this.phaseKey) {
       // Setting a style re-renders the text texture, so only do it on change.
-      this.timer.style.fill = phase === 'storm' ? B.coral : phase === 'results' ? B.muted : B.yellow;
+      this.timer.style.fill = phase === 'storm' ? B.coral : B.yellow;
       this.phaseKey = phase;
     }
 
@@ -129,9 +129,13 @@ export class Hud {
       }
       const m = formatMass(sim.ownerMass(kingId));
       if (this.kingMass.text !== m) this.kingMass.text = m;
-      // right-aligned layout: [crown][avatar] name mass |1034
+      const reign = `· ${formatTime(sim.time - sim.kingSince)}`;
+      if (this.kingReign.text !== reign) this.kingReign.text = reign;
+      // right-aligned layout: [crown][avatar] name mass · reign |1034
       const right = 1034;
-      const massX = right - this.kingMass.width;
+      const reignX = right - this.kingReign.width;
+      this.kingReign.x = reignX;
+      const massX = reignX - 10 - this.kingMass.width;
       const nameX = massX - 14 - this.kingName.width;
       const avX = nameX - 12 - 25;
       this.kingMass.x = massX;

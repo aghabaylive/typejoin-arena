@@ -173,7 +173,7 @@ export class FakeSource implements EventSource {
   private backgroundTick(): void {
     const dt = TICK_MS / 1000;
     if (Math.random() < (this.rates.joinPerMin / 60) * dt) {
-      // Mix of new viewers and returning viewers re-typing join (needed after each round reset).
+      // Mix of new viewers and returning viewers re-typing join (needed after being eaten).
       const u = this.users.length > 0 && Math.random() < 0.45 ? this.randomUser() : this.createUser();
       this.emit({ type: 'chat', text: this.joinText(), ...u });
     }

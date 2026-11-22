@@ -3,7 +3,8 @@ import { CONFIG, crowdScaleTarget, pelletTarget, radiusForMass, speedForMass, ty
 import { think } from './ai';
 import { Leaderboard } from './leaderboard';
 import type {
-  Ball, Pellet, PelletKind, Phase, Player, Projectile, QueuedGift, RoundResults, SimEvent, Spike, Temperament,
+  Ball, LeaderPanel, Pellet, PelletKind, Phase, Player, Projectile, QueuedGift, SimEvent, Spike, StormStage, Temperament,
+  TitleEntry,
 } from './types';
 import { PointGrid, clamp, deepMerge, makeRng, type DeepPartial } from './util';
 
@@ -33,16 +34,24 @@ export class Sim {
   readonly players = new Map<string, Player>();
   readonly leaderboard: Leaderboard;
 
-  phase: Phase = 'play';
-  phaseEndsAt = 0;
-  roundNo = 0;
   feastProgress = 0;
   feastUntil = 0;
   kingOwner: string | null = null;
   /** Challenger currently ahead of the King by the margin, and since when (sim time). */
   private kingChallenger: string | null = null;
   private kingChallengeSince = 0;
-  lastResults: RoundResults | null = null;
+  /** Sim time the current King took the crown (reign time). */
+  kingSince = 0;
+  /** Start of the current or next storm (sim time). */
+  stormStartAt = 0;
+  private stormStageSeen: StormStage = 'calm';
+  /** Scoring window: number (1-based), start time, and when the next TOP PLAYERS panel is due. */
+  windowNo = 1;
+  windowStartAt = 0;
+  nextPanelAt = 0;
+  /** The TOP PLAYERS panel currently on screen (null = none) and when it hides. */
+  panel: LeaderPanel | null = null;
+  panelUntil = 0;
   /** Uniform radius multiplier for crowding (1 = normal, never below crowding.minScale). */
   sizeScale = 1;
 
@@ -60,14 +69,13 @@ export class Sim {
   private contactSince = new Map<string, number>();
   /** FIFO of user ids waiting for a free slot (alive cap). */
   joinQueue: string[] = [];
-  private carryQueue: string[] = [];
 
   constructor(opts: SimOptions = {}) {
     this.cfg = deepMerge(CONFIG, opts.config);
     this.rand = makeRng(opts.seed ?? 12345);
     this.leaderboard = new Leaderboard(this.cfg);
     this.pelletGrid = new PointGrid<Pellet>(64);
-    this.startRound();
+    this.initArena();
   }
 
   // ======================= public helpers =======================
@@ -105,26 +113,50 @@ export class Sim {
     return !!p && p.shieldUntil > this.time;
   }
 
-  combatEnabled(): boolean {
-    return this.phase === 'play' || this.phase === 'storm';
+  /** 'storm' while the periodic storm event is active, else 'play' (the arena never stops). */
+  get phase(): Phase {
+    return this.stormActive() ? 'storm' : 'play';
+  }
+
+  /** Where the storm cycle is right now. */
+  stormStage(): StormStage {
+    const S = this.cfg.storm;
+    const t = this.time - this.stormStartAt;
+    if (t < -S.warnSec) return 'calm';
+    if (t < 0) return 'warn';
+    if (t < S.shrinkSec) return 'shrink';
+    if (t < S.shrinkSec + S.holdSec) return 'hold';
+    if (t < S.shrinkSec + S.holdSec + S.expandSec) return 'expand';
+    return 'calm';
   }
 
   stormActive(): boolean {
-    return this.phase === 'storm';
+    const s = this.stormStage();
+    return s === 'shrink' || s === 'hold' || s === 'expand';
   }
 
-  phaseTimeLeft(): number {
-    return Math.max(0, this.phaseEndsAt - this.time);
+  /** Seconds until the storm ends (active) or starts (otherwise). */
+  stormTimeLeft(): number {
+    const S = this.cfg.storm;
+    const t = this.time - this.stormStartAt;
+    return this.stormActive() ? S.shrinkSec + S.holdSec + S.expandSec - t : Math.max(0, -t);
   }
 
-  /** Current safe-zone radius (full arena outside the storm). */
+  /** Current safe-zone radius: shrinks (smoothstep), holds, then expands back. Full arena outside the storm. */
   safeRadius(): number {
     const R = this.cfg.arena.radius;
-    if (this.phase !== 'storm') return R;
-    const dur = this.cfg.round.stormSec;
-    const t = clamp(1 - this.phaseTimeLeft() / dur, 0, 1);
-    const e = t * t * (3 - 2 * t); // smoothstep
-    return R * (1 - (1 - this.cfg.round.stormMinRadiusFrac) * e);
+    const S = this.cfg.storm;
+    const t = this.time - this.stormStartAt;
+    const smooth = (x: number) => {
+      const u = clamp(x, 0, 1);
+      return u * u * (3 - 2 * u);
+    };
+    let shrink: number; // 0 = full arena, 1 = fully shrunk
+    if (t < 0 || t >= S.shrinkSec + S.holdSec + S.expandSec) return R;
+    if (t < S.shrinkSec) shrink = smooth(t / S.shrinkSec);
+    else if (t < S.shrinkSec + S.holdSec) shrink = 1;
+    else shrink = 1 - smooth((t - S.shrinkSec - S.holdSec) / S.expandSec);
+    return R * (1 - (1 - S.minRadiusFrac) * shrink);
   }
 
   feastActive(): boolean {
@@ -269,25 +301,16 @@ export class Sim {
   private newPlayer(userId: string, nickname: string, avatarUrl: string | undefined, isBot: boolean): Player {
     return {
       userId, nickname, avatarUrl, isBot,
-      kills: 0, gifted: false, followUsed: false, shareUsed: false,
+      kills: 0, followUsed: false, shareUsed: false, activeInWindow: false, freePeak: 0, giftedThisLife: false,
       rejoinAt: 0, revengeTarget: null, revengeUntil: 0,
-      likeWindowStart: -1, likeWindowMass: 0, likeMass: 0, joinToastRound: -1,
+      likeWindowStart: -1, likeWindowMass: 0, likeMass: 0,
       shieldUntil: 0, magnetUntil: 0, dashUntil: 0, blackHoleUntil: 0, dashTargetId: null,
-      pendingAbilities: [], pendingGifts: [], carryGifts: [], queuedJoin: false, everJoinedThisRound: false,
+      pendingGifts: [],
     };
   }
 
   private onJoin(userId: string, nickname: string, avatarUrl?: string): void {
     const p = this.touchPlayer(userId, nickname, avatarUrl);
-    if (this.phase === 'results') {
-      // Joins during the results screen spawn when the next round starts.
-      p.queuedJoin = true;
-      if (p.joinToastRound !== this.roundNo) {
-        p.joinToastRound = this.roundNo;
-        this.emit({ type: 'joinQueued', ownerId: p.userId, nickname: p.nickname });
-      }
-      return;
-    }
     if (this.ownerMass(userId) > 0 || this.ballsOf(userId).length > 0) return;
     if (this.time < p.rejoinAt) return; // rejoin cooldown after being eaten
     this.requestSpawn(p);
@@ -296,11 +319,6 @@ export class Sim {
   private onGift(userId: string, nickname: string, avatarUrl: string | undefined, g: QueuedGift, giftName?: string): void {
     const p = this.touchPlayer(userId, nickname, avatarUrl);
     if (!(g.units > 0)) return;
-    if (this.phase === 'results') {
-      p.carryGifts.push(g); // applied at the start of the next round; never lost
-      this.emitQueued(p, g, giftName, 'nextRound');
-      return;
-    }
     if (this.ballsOf(userId).length === 0) {
       if (this.time < p.rejoinAt) {
         p.pendingGifts.push(g); // auto-join as soon as the cooldown ends
@@ -317,7 +335,7 @@ export class Sim {
   }
 
   /** Lets the sender see that a gift sent while they cannot play right now was registered. */
-  private emitQueued(p: Player, g: QueuedGift, giftName: string | undefined, when: 'nextRound' | 'respawn' | 'spawn'): void {
+  private emitQueued(p: Player, g: QueuedGift, giftName: string | undefined, when: 'respawn' | 'spawn'): void {
     const ability = this.cfg.gifts.abilities[g.giftId];
     const row = ability ? this.cfg.legend.find((l) => l.ability === ability) : undefined;
     const what = row?.label ?? giftName ?? 'Gift';
@@ -331,13 +349,10 @@ export class Sim {
     if (!b) return;
     b.mass += mass;
     b.radius = this.radiusFor(b.mass);
-    p.gifted = true;
+    p.giftedThisLife = true;
     this.emit({ type: 'gift', ownerId: p.userId, mass, giftName });
     const ability = this.cfg.gifts.abilities[g.giftId];
-    if (ability) {
-      if (this.combatEnabled()) this.activateAbility(p, ability, g.units);
-      else p.pendingAbilities.push({ ability, units: g.units });
-    }
+    if (ability) this.activateAbility(p, ability, g.units);
   }
 
   private onLike(userId: string, nickname: string, avatarUrl: string | undefined, count: number): void {
@@ -345,7 +360,7 @@ export class Sim {
     const n = Math.max(0, Math.floor(count));
     this.feastProgress += n;
     const b = this.largestBallOf(userId);
-    if (!b || this.phase === 'results') return;
+    if (!b) return;
     if (this.time - p.likeWindowStart >= 1 || p.likeWindowStart < 0) {
       p.likeWindowStart = this.time;
       p.likeWindowMass = 0;
@@ -365,7 +380,7 @@ export class Sim {
   private onSocial(userId: string, nickname: string, avatarUrl: string | undefined, kind: 'follow' | 'share'): void {
     const p = this.touchPlayer(userId, nickname, avatarUrl);
     const b = this.largestBallOf(userId);
-    if (!b || this.phase === 'results') return;
+    if (!b) return;
     if (kind === 'follow') {
       if (p.followUsed) return;
       p.followUsed = true;
@@ -492,7 +507,8 @@ export class Sim {
     const r = this.radiusFor(this.cfg.ball.startMass);
     const pt = this.findSpawnPoint(r);
     const b = this.makeBall(p.userId, p.isBot, this.cfg.ball.startMass, pt.x, pt.y);
-    p.everJoinedThisRound = true;
+    p.activeInWindow = true;
+    p.giftedThisLife = false; // a new life starts free (gifts waiting for this spawn are applied below)
     this.emit({ type: 'spawn', ballId: b.id, ownerId: p.userId, isBot: p.isBot });
     if (!p.isBot) this.trimBots();
     // Gifts that waited for this spawn.
@@ -511,7 +527,7 @@ export class Sim {
       p = this.newPlayer(o.ownerId, o.nickname ?? o.ownerId, undefined, !!o.isBot);
       this.players.set(o.ownerId, p);
     }
-    p.everJoinedThisRound = true;
+    p.activeInWindow = true;
     const b = this.makeBall(o.ownerId, p.isBot, o.mass, o.x, o.y);
     b.protectedUntil = this.time + (o.protectedSec ?? 0);
     return b;
@@ -528,43 +544,40 @@ export class Sim {
       this.removeBall(b);
     }
     this.joinQueue = this.joinQueue.filter((id) => id !== userId);
-    this.carryQueue = this.carryQueue.filter((id) => id !== userId);
     this.pendingShots = this.pendingShots.filter((s) => s.senderId !== userId);
-    if (this.kingOwner === userId) this.kingOwner = null;
+    if (this.kingOwner === userId) this.setKing(null);
     this.players.delete(userId);
     return !!p || balls.length > 0;
   }
 
   /**
-   * Everyone who took part and is alive or waiting to rejoin (cooldown, queue, gifts waiting) respawns
-   * automatically at the next round's start - no need to type join again. Call before the queue is carried.
+   * Host "Reset arena" (emergency only; the game itself never resets): every ball, pellet and shot is cleared
+   * and the storm cycle starts over. Players type join again; gifts still waiting to be applied are kept and
+   * auto-join their senders as usual. Session points and the scoring window are kept.
    */
-  private markAutoRespawn(): void {
-    for (const p of this.players.values()) {
-      if (p.isBot) continue;
-      const alive = this.ballsOf(p.userId).length > 0;
-      const waiting = p.rejoinAt > this.time || this.carryQueue.includes(p.userId) || this.joinQueue.includes(p.userId) || p.pendingGifts.length > 0;
-      if (alive || waiting) p.queuedJoin = true;
+  resetArena(): void {
+    for (const b of [...this.balls]) {
+      this.emit({ type: 'botLeft', ballId: b.id, x: b.x, y: b.y });
+      this.removeBall(b);
     }
+    for (const [id, p] of this.players) {
+      if (p.isBot) this.players.delete(id);
+      else Object.assign(p, { rejoinAt: 0, shieldUntil: 0, magnetUntil: 0, dashUntil: 0, blackHoleUntil: 0, dashTargetId: null });
+    }
+    this.pellets = [];
+    this.projectiles = [];
+    this.pendingShots = [];
+    this.setKing(null);
+    this.feastUntil = 0;
+    this.stormStartAt = this.time + this.cfg.storm.everySec;
+    this.stormStageSeen = 'calm';
+    for (const s of this.spikes) this.placeSpike(s);
+    for (let i = 0; i < this.cfg.pellets.target; i++) this.spawnPellet('normal', this.cfg.pellets.value);
   }
 
-  /** Host "Restart round": a fresh round; current players come back automatically, queued gifts carry as usual. */
-  restartRound(): void {
-    this.markAutoRespawn();
-    for (const p of this.players.values()) {
-      if (p.pendingGifts.length) {
-        p.carryGifts.push(...p.pendingGifts);
-        p.pendingGifts = [];
-      }
-    }
-    this.carryQueue = [...this.joinQueue];
-    this.joinQueue = [];
-    this.startRound();
-  }
-
-  /** Test/debug helper: jump to a phase (runs its enter logic). */
-  debugSetPhase(phase: Phase): void {
-    this.enterPhase(phase);
+  /** Test/debug helper: put the storm cycle at `elapsed` seconds after the storm start (negative = before). */
+  debugStorm(elapsed = 0): void {
+    this.stormStartAt = this.time - elapsed;
   }
 
   private spawnBot(): void {
@@ -621,105 +634,84 @@ export class Sim {
     s.active = true;
   }
 
-  // ======================= round flow =======================
+  // ======================= continuous arena =======================
 
-  private startRound(): void {
-    this.roundNo++;
-    for (const b of this.balls) this.ballIndex.delete(b.id);
-    this.balls = [];
-    this.pellets = [];
-    this.projectiles = [];
-    this.pendingShots = [];
-    this.kingOwner = null;
-    this.kingChallenger = null;
-    this.feastUntil = 0;
-    // Bots are recreated per round.
-    for (const [id, p] of this.players) if (p.isBot) this.players.delete(id);
-    for (const p of this.players.values()) {
-      const carry = [...p.carryGifts, ...p.pendingGifts];
-      const queued = p.queuedJoin;
-      Object.assign(p, {
-        kills: 0, gifted: false, followUsed: false, shareUsed: false, rejoinAt: 0,
-        revengeTarget: null, revengeUntil: 0, likeWindowStart: -1, likeWindowMass: 0, likeMass: 0,
-        shieldUntil: 0, magnetUntil: 0, dashUntil: 0, blackHoleUntil: 0, dashTargetId: null,
-        pendingAbilities: [], pendingGifts: [], carryGifts: [], queuedJoin: false, everJoinedThisRound: false,
-      } satisfies Partial<Player>);
-      p.pendingGifts = carry;
-      if (queued || carry.length) p.queuedJoin = true;
-    }
+  /** One-time setup: the arena then runs nonstop (no rounds, no resets). */
+  private initArena(): void {
     this.spikes = [];
     for (let i = 0; i < this.cfg.spikes.count; i++) {
       const s: Spike = { id: this.nextId++, x: 0, y: 0, active: false, respawnAt: 0 };
       this.spikes.push(s);
       this.placeSpike(s);
     }
-    this.sizeScale = 1;
     for (let i = 0; i < this.cfg.pellets.target; i++) this.spawnPellet('normal', this.cfg.pellets.value);
-    this.enterPhase('play'); // no join window: the round starts right away
-    this.joinQueue = [];
-    const carried = this.carryQueue;
-    this.carryQueue = [];
-    const order = [
-      ...carried.map((id) => this.players.get(id)).filter((p): p is Player => !!p),
-      ...[...this.players.values()].filter((p) => !carried.includes(p.userId)),
-    ];
-    // Gifters first (they jump the queue), then last round's queue, then other queued joins.
-    order.sort((a, b) => Number(b.pendingGifts.length > 0) - Number(a.pendingGifts.length > 0));
-    for (const p of order) {
-      if (p.queuedJoin || carried.includes(p.userId)) {
-        p.queuedJoin = false;
-        this.requestSpawn(p, false); // applies pending (carried) gifts on spawn
-      }
+    this.stormStartAt = this.time + this.cfg.storm.everySec;
+    this.windowStartAt = this.time;
+    this.nextPanelAt = this.time + this.cfg.leaderboard.windowSec;
+  }
+
+  /** Storm cycle bookkeeping: emits each stage change and schedules the next storm once one is over. */
+  private updateStorm(): void {
+    const S = this.cfg.storm;
+    if (this.time >= this.stormStartAt + S.shrinkSec + S.holdSec + S.expandSec) {
+      while (this.time >= this.stormStartAt + S.shrinkSec + S.holdSec + S.expandSec) this.stormStartAt += S.everySec;
+    }
+    const stage = this.stormStage();
+    if (stage !== this.stormStageSeen) {
+      this.stormStageSeen = stage;
+      this.emit({ type: 'storm', stage });
     }
   }
 
-  private enterPhase(phase: Phase): void {
-    const r = this.cfg.round;
-    this.phase = phase;
-    const dur = phase === 'play' ? r.playSec : phase === 'storm' ? r.stormSec : r.resultsSec;
-    this.phaseEndsAt = this.time + dur;
-    if (phase === 'play' || phase === 'storm') {
-      for (const p of this.players.values()) {
-        const q = p.pendingAbilities;
-        p.pendingAbilities = [];
-        for (const a of q) this.activateAbility(p, a.ability, a.units);
-      }
-    }
-    if (phase === 'results') this.finishRound();
-    this.emit({ type: 'phase', phase, roundNo: this.roundNo });
-  }
-
-  private finishRound(): void {
+  /** Biggest mass of each free (no gift this life) real player in the window. */
+  private trackFreePeaks(): void {
     const totals = new Map<string, number>();
     for (const b of this.balls) if (!b.isBot) totals.set(b.ownerId, (totals.get(b.ownerId) ?? 0) + b.mass);
-    const entry = (userId: string, value: number) => {
-      const p = this.players.get(userId)!;
-      return { userId, nickname: p.nickname, avatarUrl: p.avatarUrl, value };
-    };
-    const ranked = [...totals.entries()].sort((a, b) => b[1] - a[1]);
-    const king = ranked[0] ? entry(ranked[0][0], ranked[0][1]) : null;
-    let killer: RoundResults['killer'] = null;
-    for (const p of this.players.values()) {
-      if (p.isBot || p.kills <= 0) continue;
-      if (!killer || p.kills > killer.value) killer = entry(p.userId, p.kills);
+    for (const [id, m] of totals) {
+      const p = this.players.get(id);
+      if (p && !p.giftedThisLife && m > p.freePeak) p.freePeak = m;
     }
-    const free = ranked.find(([id]) => !this.players.get(id)!.gifted);
-    const bestFree = free ? entry(free[0], free[1]) : null;
-    const realPlayers = [...this.players.values()].filter((p) => !p.isBot && p.everJoinedThisRound);
-    this.leaderboard.addRound(ranked.map(([id]) => this.players.get(id)!), realPlayers);
-    this.lastResults = { roundNo: this.roundNo, king, killer, bestFree, top: this.leaderboard.top(this.cfg.leaderboard.showTop) };
-    // Queued joiners keep their place: they spawn (in queue order) at the next round's start.
-    this.carryQueue = [...this.joinQueue];
-    this.joinQueue = [];
-    this.markAutoRespawn();
-    // Gifts still waiting for a respawn carry into the next round.
-    for (const p of this.players.values()) {
-      if (p.pendingGifts.length) {
-        p.carryGifts.push(...p.pendingGifts);
-        p.pendingGifts = [];
-      }
+  }
+
+  /**
+   * End of a scoring window: score placements + kills, show the TOP PLAYERS panel, start the next window.
+   * Never during a storm or its warning: the panel then waits until the storm is over.
+   */
+  private updateWindow(): void {
+    if (this.panel && this.time >= this.panelUntil) this.panel = null;
+    if (this.time < this.nextPanelAt || this.stormStage() !== 'calm') return;
+    const L = this.cfg.leaderboard;
+    this.panel = this.closeWindow();
+    this.panelUntil = this.time + L.panelSec;
+    while (this.nextPanelAt <= this.time) this.nextPanelAt += L.windowSec;
+    this.emit({ type: 'leaderboard', panel: this.panel });
+  }
+
+  /** Scores the current window, returns its TOP PLAYERS panel and resets the per-window stats. */
+  closeWindow(): LeaderPanel {
+    const entry = (p: Player, value: number): TitleEntry => ({ userId: p.userId, nickname: p.nickname, avatarUrl: p.avatarUrl, value });
+    const real = [...this.players.values()].filter((p) => !p.isBot);
+    const ranked = this.topOwners(Infinity).map((o) => this.players.get(o.ownerId)!);
+    const kp = this.kingOwner ? this.players.get(this.kingOwner) : undefined;
+    const king = kp ? { ...entry(kp, this.ownerMass(kp.userId)), reignSec: this.time - this.kingSince } : null;
+    const killers = real
+      .filter((p) => p.kills > 0)
+      .sort((a, b) => b.kills - a.kills)
+      .slice(0, this.cfg.leaderboard.panelKillers)
+      .map((p) => entry(p, p.kills));
+    let free: Player | undefined;
+    for (const p of real) if (p.freePeak > 0 && (!free || p.freePeak > free.freePeak)) free = p;
+    const panel: LeaderPanel = { windowNo: this.windowNo, king, killers, bestFree: free ? entry(free, free.freePeak) : null };
+    this.leaderboard.addWindow(ranked, real.filter((p) => p.activeInWindow));
+    // Next window.
+    this.windowNo++;
+    this.windowStartAt = this.time;
+    for (const p of real) {
+      const alive = this.ballsOf(p.userId).length > 0;
+      Object.assign(p, { kills: 0, followUsed: false, shareUsed: false, activeInWindow: alive, freePeak: 0 });
     }
-    this.emit({ type: 'results', results: this.lastResults });
+    this.trackFreePeaks();
+    return panel;
   }
 
   // ======================= main step =======================
@@ -734,13 +726,7 @@ export class Sim {
       b.swallowerId = 0;
     }
 
-    if (this.time >= this.phaseEndsAt) {
-      if (this.phase === 'play') this.enterPhase('storm');
-      else if (this.phase === 'storm') this.enterPhase('results');
-      else this.startRound();
-    }
-    if (this.phase === 'results') return; // world is frozen behind the results screen
-
+    this.updateStorm();
     this.processQueues();
     this.updateSizeScale(dt);
     this.pelletGrid.rebuild(this.pellets);
@@ -758,6 +744,8 @@ export class Sim {
     this.mergePieces();
     this.respawnPellets(dt);
     this.updateKing();
+    this.trackFreePeaks();
+    this.updateWindow();
   }
 
   private processQueues(): void {
@@ -773,7 +761,7 @@ export class Sim {
       if (p && this.ballsOf(p.userId).length === 0) this.spawnPlayerBall(p);
     }
     // Staggered spike shots.
-    if (this.pendingShots.length && this.combatEnabled()) {
+    if (this.pendingShots.length) {
       const due = this.pendingShots.filter((s) => s.fireAt <= this.time);
       if (due.length) {
         this.pendingShots = this.pendingShots.filter((s) => s.fireAt > this.time);
@@ -925,7 +913,6 @@ export class Sim {
     const c = this.cfg.contact;
     const balls = this.balls;
     const n = balls.length;
-    const combat = this.combatEnabled();
     /** Per ball: combat-eligible contacts (index + contact point). */
     const cands: { j: number; x: number; y: number }[][] = Array.from({ length: n }, () => []);
     const seen = new Set<string>();
@@ -956,7 +943,7 @@ export class Sim {
         const key = a.id < b.id ? `${a.id}:${b.id}` : `${b.id}:${a.id}`;
         seen.add(key);
         if (!this.contactSince.has(key)) this.contactSince.set(key, this.time);
-        if (!combat || this.isHarmless(a) || this.isHarmless(b)) continue;
+        if (this.isHarmless(a) || this.isHarmless(b)) continue;
         const x = a.x + nx * (a.radius - overlap / 2), y = a.y + ny * (a.radius - overlap / 2);
         cands[i].push({ j, x, y });
         cands[j].push({ j: i, x, y });
@@ -1166,7 +1153,7 @@ export class Sim {
     const { cx, cy } = this.cfg.arena;
     for (const b of this.balls) {
       if (b.mass > B.decayAboveMass) b.mass -= b.mass * B.decayPerSec * dt;
-      if (storm && Math.hypot(b.x - cx, b.y - cy) > safe) b.mass -= b.mass * this.cfg.round.stormDamagePerSec * dt;
+      if (storm && Math.hypot(b.x - cx, b.y - cy) > safe) b.mass -= b.mass * this.cfg.storm.damagePerSec * dt;
       b.radius = this.radiusFor(b.mass);
     }
   }
@@ -1310,11 +1297,16 @@ export class Sim {
       }
       if (this.time - this.kingChallengeSince >= k.challengeSec - 1e-9) next = top.ownerId;
     } else this.kingChallenger = null;
-    if (next !== cur) {
-      this.kingOwner = next;
-      this.kingChallenger = null;
-      this.emit({ type: 'kingChanged', from: cur, to: next });
-    }
+    if (next !== cur) this.setKing(next);
+  }
+
+  private setKing(next: string | null): void {
+    const cur = this.kingOwner;
+    this.kingChallenger = null;
+    if (next === cur) return;
+    this.kingOwner = next;
+    this.kingSince = this.time;
+    this.emit({ type: 'kingChanged', from: cur, to: next });
   }
 
   private emit(e: SimEvent): void {

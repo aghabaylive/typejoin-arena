@@ -1,30 +1,37 @@
 # Balance runs
 
-Produced by `npm run sim:balance` (`game/src/balance/balance.ts`). The harness drives the real `Sim` through `handleEvent` only, headless, at maximum speed. It runs 20 rounds per scenario with seed 1.
+Produced by `npm run sim:balance` (`game/src/balance/balance.ts`). The harness drives the real `Sim` through `handleEvent` only, headless, at maximum speed.
 
-## Viewer model (per scenario)
-- **Viewer pool:** a fixed pool of 20, 50 or 100 viewers. All of them type join during each join window. Nobody joins from outside the pool.
-- **Gift roles:** rolled again every round.
-  - 85 % never gift.
-  - 10 % send 1–5 Roses (1 coin each).
-  - 4 % send one 100-coin Spike Shot.
-  - One whale sends a 500-coin Magnet and a 1000-coin Black Hole.
-  - Gifts arrive at random times during join, play and storm.
+Since round 8 the game has no rounds: the harness runs **3 continuous 30-minute runs per scenario** (seeds 1, 2, 3), measured in 5-minute windows (`leaderboard.windowSec`). Rounds 1–7 below used 20 rounds per scenario with the viewer model described in their own sections.
+
+## Viewer model (continuous runs, round 8 onward)
+- **Viewer pool:** 20, 50 or 100 viewers. Each types join at a random moment in the first 2 minutes. Nobody joins from outside the pool.
+- **Gift roles:** fixed for the whole run.
+  - About 83 % never gift.
+  - 10 % send 1–5 Roses (Dash, 1 coin each) once per window.
+  - 4 % send one 100-coin Spike Shot once per window.
+  - 3 % send one Doughnut (Shield, 30 coins) once per window.
+  - One whale sends a 500-coin Magnet between 1:00 and 4:00, and a **single** 1000-coin Black Hole between 5:00 and 7:00. Nothing after that.
 - **Likes:** a steady 20 likes/s from random pool viewers.
-- **After being eaten:** 30 % give up for the round. The rest type join again after a random 5–30 s.
+- **After being eaten:** 30 % leave for 2–6 minutes, then type join again. The rest type join again after 5–30 s.
 
-## Metrics
-- **whale top 3:** share of rounds in which the whale (the 1000-coin gifter) is in the live top 3 by mass when the round ends.
-- **whale King after BH:** share of the time from the whale's 1000-coin gift to the end of the round during which the whale is King.
-- **Rose life:** median combat lifetime of Rose senders, measured the same way as non-gifter life.
-- **min pellets play / storm:** the lowest pellet count, reported separately for the play phase and the storm.
-- **top-3 kills:** average per round.
-- **top killer share:** the top killer's kills divided by all kills, summed over rounds.
-- **non-gifter life:** time alive in combat, from play start or spawn to death. Lives still alive at round end are cut off there.
-- **King changes:** King handovers during play and storm. The first crowning of a round does not count.
-- **lowest pellets:** the minimum pellet count seen during play and storm.
+## Metrics (continuous runs)
+- **crown chg/5 min:** every visible crown change (`kingChanged` events), including to and from "No king yet", per 5 minutes. Target 1–3.
+- **top-3 kills/window, top killer share:** per 5-minute window; share = each window's top killer's kills / all player kills, summed over windows. Target <= 35 %.
+- **non-gifter life:** median time alive from spawn to death; lives still running at the end of a run are cut off there. Target >= 30 s.
+- **whale top 3:** share of the run time the whale is in the live top 3 by mass.
+- **whale King 5 min after BH:** share of the 5 minutes after the whale's Black Hole during which the whale is King.
+- **whale mass after gift:** the whale's mass at fixed times after its single 1000-coin gift (mean over runs, 0 when dead), next to the median mass of the alive players.
+- **min pellets calm / storm:** info only, no target (see the pellet-floor decision below).
 
-## Results (50-viewer targets: share <= 35 %, median life >= 30 s, King changes >= 2, pellets >= 40)
+## Pellet floor: accepted by design (decision, round 8)
+The play-phase pellet floor (>= 40) is no longer a target. Magnet and Black Hole are paid spectacles, and emptying the arena of pellets for a few seconds is their intended effect. Non-gifter median life is the real target for free players, and it is met. The harness still prints the minimum pellet counts, for information only.
+
+## Round 1-7 results (round-based game)
+
+Viewer model for these runs: 20 rounds per scenario; all pool viewers type join at each round start; gift roles rolled again every round; after being eaten 30 % give up for the round and the rest rejoin after 5–30 s. Metrics were per round (King changes excluded the first crowning; whale top 3 = share of rounds the whale ended in the top 3).
+
+### Results (50-viewer targets: share <= 35 %, median life >= 30 s, King changes >= 2, pellets >= 40)
 
 `before.json` is the code before one-mouth, digestion, the queue and storm scaling:
 
@@ -51,6 +58,8 @@ Produced by `npm run sim:balance` (`game/src/balance/balance.ts`). The harness d
 | 100 | 25.9 / 13.2 / 10.3 | 14 % | 34.0 s | 14.0 s | 9.65 | 13 |
 
 ## Open trade-off: the pellet floor
+
+(Resolved in round 8: accepted by design. See "Pellet floor" at the top.)
 None of the five allowed knobs (`contact.rate`, digestion time, alive cap, `massPerCoin`, decay) lifts the lowest pellet count to 40. A 108-combination grid on the 50-viewer scenario found a best of 20. There are two separate floors:
 
 1. **End of storm.** In the last ~15 s the balls cover 150–175 % of the *safe zone*. The crowding scale backs off to ~0.75 because it measures coverage against the full arena. New pellets spawn inside the safe zone, so they land under balls and are eaten faster than 300/s can replace them.
@@ -138,3 +147,29 @@ Roses granting Dash lets 10 % of viewers hunt for a few seconds. In the 50-viewe
 | 100 | 15 % | 34.8 s | 14.5 s | 37 s | 3.35 | 55 % | 63 % | 19 | 11 |
 
 50 viewers: King changes fall from 16.3 to 3.95 per round (target 3–8). Every other target that was met is still met. The play-phase pellet floor (>= 40) is still missed, as before.
+
+## Round 8: nonstop arena (`v8-nonstop.json`)
+- No rounds: no round timer, results screen, reset or auto-respawn.
+- Storm event every 4 minutes (shrink to 50 % over 30 s, hold 15 s, expand over 10 s).
+- 5-minute scoring windows with a TOP PLAYERS panel.
+- Harness: 3 x 30-minute continuous runs per scenario. No tuning.
+
+| viewers | crown chg/5 min | top-3 kills/window | top killer share | life non-gifter | p25 | life Rose | whale top 3 | whale King 5 min after BH | kills/5 min | min pellets calm / storm (info) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 20 | 1.22 | 43 / 1.6 / 1.3 | 88 % | 26.5 s | 12.8 s | 19.9 s | 39 % | 33 % | 49.2 | 9 / 30 |
+| 50 | 0.44 | 44.9 / 4.7 / 3.9 | 49 % | 53 s | 22.5 s | 53.4 s | 5 % | 0 % | 92.3 | 38 / 32 |
+| 100 | 0.44 | 55.8 / 7.9 / 6.4 | 28 % | 46.7 s | 20 s | 46.2 s | 4 % | 0 % | 197.8 | 27 / 26 |
+
+Whale mass after its single 1000-coin gift (mean of 3 runs; runs in which the whale had died by then in brackets) / median alive player:
+
+| viewers | +0 s | +30 s | +1 min | +2 min | +3 min | +5 min | +10 min |
+|---|---|---|---|---|---|---|---|
+| 20 | 10415 [0] / 45 | 7458 [0] / 44 | 6274 [1] / 46 | 5815 [2] / 2226 | 4751 [2] / 83 | 4344 [2] / 66 | 4206 [2] / 40 |
+| 50 | 5058 [0] / 36 | 104 [2] / 49 | 19 [2] / 42 | 28 [3] / 54 | 38 [3] / 41 | 77 [3] / 41 | 5 [3] / 58 |
+| 100 | 5118 [0] / 50 | 4777 [1] / 39 | 465 [2] / 42 | 29 [2] / 54 | 3 [3] / 49 | 15 [3] / 42 | 97 [3] / 50 |
+
+50 viewers: non-gifter median life (53 s) is met. **Crown changes (0.44 per 5 min, target 1–3) and top killer share (49 %, target <= 35 %) are missed.**
+
+Why: without a reset, one free player becomes a permanent giant. In both 50-viewer runs inspected, a non-gifter took the crown within the first minute and held it for the entire 30 minutes at about 18–21k mass (usually split into several pieces), killing 40–80 players per window. 1 %/s decay above 500 does not bring it down: pellets respawn at up to 300/s and the giant eats most of them, so its mass settles where decay equals that intake (about 300 / 0.01 = 30k at most, about 20k in practice). Rounds used to cut this off every 3.75 minutes.
+
+The whale: a single 1000-coin gift (+5000 mass) is far below the giant, so at 50 and 100 viewers the whale is usually eaten within 30 s to 2 minutes of its Black Hole. When it survives (20 viewers), decay brings it from about 10k down to about 4–5k within 3 minutes, and it then stays there (pellet intake again). The 20-viewer row is dominated by a single giant too (88 % top killer share).

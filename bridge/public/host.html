@@ -54,11 +54,11 @@
 </header>
 <main>
   <section style="grid-column: 1 / -1">
-    <h2>Round</h2>
+    <h2>Arena</h2>
     <div class="row">
       <button onclick="cmd({cmd:'pause'})">Pause</button>
       <button onclick="cmd({cmd:'resume'})">Resume</button>
-      <button class="alt" onclick="if (confirm('Restart the current round? Everyone has to type join again.')) cmd({cmd:'restartRound'})">Restart round</button>
+      <button class="alt" onclick="if (confirm('Reset the arena? Emergency only: every ball is removed and everyone has to type join again (gifts waiting to be applied are kept).')) cmd({cmd:'restartRound'})">Reset arena</button>
       <span class="hint" id="roundInfo"></span>
     </div>
     <div class="row">
@@ -123,7 +123,7 @@
     const fresh = s.game.ageMs !== null && s.game.ageMs < 3000;
     g.textContent = fresh ? 'game: ' + s.game.phase + (s.game.paused ? ' (PAUSED)' : '') : 'game: not connected';
     g.className = 'pill ' + (fresh && !s.game.paused ? 'ok' : 'bad');
-    document.getElementById('roundInfo').textContent = fresh ? 'round ' + s.game.roundNo + ' · ' + s.game.phase : '';
+    document.getElementById('roundInfo').textContent = fresh ? 'window ' + s.game.roundNo + ' · ' + s.game.phase : '';
     document.getElementById('legendFull').className = fresh && s.game.legend === 'full' ? '' : 'alt';
     document.getElementById('legendOff').className = fresh && s.game.legend === 'off' ? '' : 'alt';
     document.getElementById('legendInfo').textContent = fresh ? 'now: ' + s.game.legend : '';

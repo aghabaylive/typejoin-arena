@@ -65,14 +65,14 @@ const bridge = new BridgeClient(
   (a) => {
     if (a.action === 'pause') hostPaused = true;
     else if (a.action === 'resume') hostPaused = false;
-    else if (a.action === 'restartRound') sim.restartRound();
+    else if (a.action === 'restartRound') sim.resetArena(); // host "Reset arena" (message name kept)
     else if (a.action === 'legend') renderer.setLegendMode(a.mode);
     else if (a.action === 'remove') sim.removePlayer(a.userId);
   },
 );
 bridge.start();
 
-/** Stream not live yet / reconnecting / ended, or host pause: banner shown, world and round timer stopped. */
+/** Stream not live yet / reconnecting / ended, or host pause: banner shown, world stopped. */
 const currentOverlay = () => overlayText({ bridgeOpen: bridge.status === 'open', sourceState: bridge.sourceState, hostPaused });
 
 // Alive players + delay stats for the host panel, once a second.
@@ -86,7 +86,7 @@ setInterval(() => {
     players.set(b.ownerId, cur);
   }
   bridge.send({
-    kind: 'players', players: [...players.values()], queued: sim.joinQueue.length, phase: sim.phase, roundNo: sim.roundNo,
+    kind: 'players', players: [...players.values()], queued: sim.joinQueue.length, phase: sim.phase, roundNo: sim.windowNo, // roundNo = scoring window number (message format kept)
     paused: currentOverlay() !== null, legend: renderer.legendMode, delay: { ...delay },
   });
   delay.count = delay.sumMs = delay.maxMs = 0;
@@ -120,7 +120,7 @@ app.ticker.add((t) => {
     FPS: app.ticker.FPS.toFixed(0),
     'sim ms/frame': simMs.toFixed(2),
     'render ms/frame (JS)': renderMs.toFixed(2),
-    phase: `${sim.phase} (round ${sim.roundNo}) ${sim.phaseTimeLeft().toFixed(0)}s`,
+    phase: `${sim.stormStage()} (storm ${sim.phase === 'storm' ? 'ends' : 'in'} ${sim.stormTimeLeft().toFixed(0)}s, window ${sim.windowNo}, panel in ${Math.max(0, sim.nextPanelAt - sim.time).toFixed(0)}s)`,
     balls: sim.balls.length,
     players: sim.balls.filter((b) => !b.isBot).length,
     bots: sim.balls.filter((b) => b.isBot).length,
